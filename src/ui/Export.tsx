@@ -32,6 +32,8 @@ export function Export({ item, onClose }: { item: ExportItem; onClose: () => voi
     document.body.appendChild(a); a.click(); a.remove()
   }
   const lines = item.kind === 'text' ? item.text.split('\n') : []
+  // embedded frames usually refuse downloads; there the image itself is the way to save
+  const embedded = window.self !== window.top
 
   return (
     <div className="export" role="dialog" aria-modal="true" aria-label={item.kind === 'text' ? 'Text export' : 'Image export'} onClick={onClose}>
@@ -44,7 +46,7 @@ export function Export({ item, onClose }: { item: ExportItem; onClose: () => voi
           ? <pre ref={pre} className="ascii">{item.text}</pre>
           : <img className="shot" src={item.url} alt="The current view as an image" />}
         <div className="actions">
-          {item.kind === 'text' ? <button type="button" onClick={copy}>copy</button> : <button type="button" onClick={save}>download</button>}
+          {item.kind === 'text' ? <button type="button" onClick={copy}>copy</button> : !embedded && <button type="button" onClick={save}>download</button>}
           <button type="button" onClick={onClose}>close</button>
           <span className="note" aria-live="polite">{note}</span>
         </div>
