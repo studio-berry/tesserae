@@ -8,6 +8,7 @@ import { Stage } from './engine/Stage'
 import { prepare, Shape, Source } from './objects'
 import { LIBRARY } from './objects/library'
 import { ACCEPT } from './objects/formats'
+import { Export, ExportItem } from './ui/Export'
 import { Hud } from './ui/Hud'
 import { Panel } from './ui/Panel'
 
@@ -28,16 +29,10 @@ function readUrl() {
     seed: Math.max(0, parseInt(q.get('seed') ?? '0') || 0),
     density: Math.max(1500, Math.min(12000, parseInt(q.get('n') ?? '') || DEFAULT_DENSITY)),
     mode: pickOf(q.get('mode'), MODES, 'letters'),
-    theme: pickOf(q.get('theme'), ['dark', 'light'] as const, systemDark() ? 'dark' : 'light'),
+    theme: pickOf(q.get('theme') ?? document.documentElement.dataset.theme ?? null, ['dark', 'light'] as const, systemDark() ? 'dark' : 'light'),
     tint: pickOf(q.get('ink'), [...TINTS.map((t) => t.id), 'source'] as TintId[], 'ivory'),
     charset: pickOf(q.get('glyphs'), [...Object.keys(CHARSETS), 'custom'] as CharsetId[], 'letters'),
   }
-}
-
-function download(name: string, href: string) {
-  const a = document.createElement('a')
-  a.href = href; a.download = name
-  document.body.appendChild(a); a.click(); a.remove()
 }
 
 export default function App() {
@@ -61,13 +56,6 @@ export default function App() {
   const [fontsReady, setFontsReady] = useState(false)
   const [tune, setTune] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
-  const flashTimer = useRef(0)
-
-  const flash = useCallback((msg: string) => {
-    setStatus(msg)
-    clearTimeout(flashTimer.current)
-    flashTimer.current = window.setTimeout(() => setStatus(''), 2600)
-  }, [])
 
   useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
   // the glyph atlas is drawn in Plex Mono; wait so it rasterises the right shapes
@@ -149,19 +137,17 @@ export default function App() {
 
   const pickLibrary = useCallback((id: string) => { setSource({ kind: 'library', id }); setSeed(0) }, [])
   const reroll = useCallback(() => setSeed((s) => s + 1), [])
-  const copy = useCallback(async () => {
-    const txt = stageApi.snapshot(96)
-    if (!txt) return
-    try { await navigator.clipboard.writeText(txt); flash('copied as text · 96 columns') } catch {
-      download('gen-ascii.txt', URL.createObjectURL(new Blob([txt], { type: 'text/plain' }))); flash('saved gen-ascii.txt')
-    }
-  }, [flash])
-  const png = useCallback(() => { download('gen-ascii.png', stageApi.png()); flash('saved gen-ascii.png') }, [flash])
+  const [exported, setExported] = useState<ExportItem | null>(null)
+  const copy = useCallback(() => {
+    const text = stageApi.snapshot(96)
+    if (text) setExported({ kind: 'text', text })
+  }, [])
+  const png = useCallback(() => setExported({ kind: 'png', url: stageApi.png() }), [])
 
   // keys: arrows step through the library, space scatters, r rerolls, g changes mode, t theme
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return
+      if (exported || e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return
       const at = source.kind === 'library' ? LIBRARY.findIndex((l) => l.id === source.id) : -1
       if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') pickLibrary(LIBRARY[at < 0 ? 0 : (at + (e.key === 'ArrowRight' ? 1 : LIBRARY.length - 1)) % LIBRARY.length].id)
       else if (e.key === ' ') { e.preventDefault(); stageApi.burst() }
@@ -171,7 +157,7 @@ export default function App() {
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [source, pickLibrary, reroll])
+  }, [source, pickLibrary, reroll, exported])
 
   const active = (id: string) => source.kind === 'library' && source.id === id
   // 'source' only means something for objects that bring their own colours
@@ -212,9 +198,10 @@ export default function App() {
         tint={ink} setTint={setTint} hasColor={!!shape?.col}
         density={draftDensity} setDensity={setDraftDensity}
         spin={spin} setSpin={setSpin}
-        onBurst={() => stageApi.burst()} onReroll={reroll} onCopy={copy} onPng={png}
+        onBurst={() => stageApi.burst()} onReroll={reroll} onText={copy} onPng={png}
       />
 
+      {exported && <Export item={exported} onClose={() => setExported(null)} />}
       {dragging && <div className="drop"><span>drop a model<br /><small>glb · gltf · obj · stl · ply · fbx</small></span></div>}
     </>
   )

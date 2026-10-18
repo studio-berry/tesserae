@@ -245,25 +245,25 @@ export function Stage({ shape, mode, theme, tint, atlas, spin }: Props) {
     stageApi.snapshot = (cols = 96) => snapshot(cols)
   })
 
-  // Renders the current view as plain text: splat every visible dot into a fine depth buffer,
-  // then give each character cell the glyph its average ink calls for
+  // Renders the current view as plain text: project the visible dots, crop to the object, splat
+  // them into a fine depth buffer, then give each character cell the glyph its average ink calls for
   const snapshot = (cols: number) => {
     const e = E.current, t = e.cur
     if (!t?.shape) return ''
     const { mv, nm } = views()
-    const W = size.width, H = size.height, cw = W / cols, ch = cw * 2, rows = Math.max(1, Math.round(H / ch))
-    const SX = 3, SY = 6, gw = cols * SX, gh = rows * SY, sub = cw / SX
-    const zb = new Float32Array(gw * gh).fill(Infinity), ib = new Float32Array(gw * gh)
-    const pos = geo.attributes.position.array as Float32Array, v = new THREE.Vector3(), n = new THREE.Vector3(), h = new THREE.Vector3()
+    const W = size.width, H = size.height
+    const pos = geo.attributes.position.array as Float32Array, v = new THREE.Vector3(), n = new THREE.Vector3(), h = new THREE.Vector3(), view = new THREE.Vector3()
     const persp = camera as THREE.PerspectiveCamera, focal = H / (2 * Math.tan((persp.fov * Math.PI) / 360))
     const twoSided = t.shape.twoSided
+    const dots: { x: number; y: number; z: number; ink: number; r: number }[] = []
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
     for (let i = 0; i < N; i++) {
       if (!t.on[i]) continue
       v.fromArray(pos, i * 3).applyMatrix4(mv)
       const z = -v.z
       if (z <= 0.1) continue
       n.fromArray(e.Nn, i * 3).applyMatrix3(nm).normalize()
-      const view = v.clone().negate().normalize()
+      view.copy(v).negate().normalize()
       let facing = n.dot(view)
       if (twoSided && facing < 0) { n.negate(); facing = -facing }
       if (!twoSided && facing < -0.05) continue
@@ -271,13 +271,22 @@ export function Stage({ shape, mode, theme, tint, atlas, spin }: Props) {
       const graze = 0.5 + 0.5 * smooth(facing / 0.45)
       const ink = clamp01(e.al[i] * (0.16 + 0.84 * lam + 0.55 * spec + 0.06 * (1 - clamp01(facing)) ** 3) * graze * 0.72)
       v.applyMatrix4(camera.projectionMatrix)
-      const sx = (v.x * 0.5 + 0.5) * W / sub, sy = (0.5 - v.y * 0.5) * H / sub
-      const rad = Math.max(0.6, (e.sz[i] * SIZE_MUL.grid * focal) / z / 2 / sub)
+      const x = (v.x * 0.5 + 0.5) * W, y = (0.5 - v.y * 0.5) * H, r = (e.sz[i] * SIZE_MUL.grid * focal) / z / 2
+      dots.push({ x, y, z, ink, r })
+      x0 = Math.min(x0, x - r); x1 = Math.max(x1, x + r); y0 = Math.min(y0, y - r); y1 = Math.max(y1, y + r)
+    }
+    if (!dots.length) return ''
+    // character cells are twice as tall as wide; the columns span the object, not the screen
+    const cw = (x1 - x0) / cols, ch = cw * 2, rows = Math.max(1, Math.ceil((y1 - y0) / ch))
+    const SX = 3, SY = 6, gw = cols * SX, gh = rows * SY, sub = cw / SX
+    const zb = new Float32Array(gw * gh).fill(Infinity), ib = new Float32Array(gw * gh)
+    for (const d of dots) {
+      const sx = (d.x - x0) / sub, sy = (d.y - y0) / sub, rad = Math.max(0.6, d.r / sub)
       for (let gy = Math.max(0, Math.floor(sy - rad)); gy <= Math.min(gh - 1, Math.ceil(sy + rad)); gy++)
         for (let gx = Math.max(0, Math.floor(sx - rad)); gx <= Math.min(gw - 1, Math.ceil(sx + rad)); gx++) {
           if ((gx + 0.5 - sx) ** 2 + (gy + 0.5 - sy) ** 2 > rad * rad) continue
           const k = gy * gw + gx
-          if (z < zb[k]) { zb[k] = z; ib[k] = ink }
+          if (d.z < zb[k]) { zb[k] = d.z; ib[k] = d.ink }
         }
     }
     const ramp = atlas.ranked, lines: string[] = []

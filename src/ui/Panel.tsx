@@ -9,7 +9,7 @@ type Props = {
   tint: TintId; setTint: (t: TintId) => void; hasColor: boolean
   density: number; setDensity: (n: number) => void
   spin: boolean; setSpin: (b: boolean) => void
-  onBurst: () => void; onReroll: () => void; onCopy: () => void; onPng: () => void
+  onBurst: () => void; onReroll: () => void; onText: () => void; onPng: () => void
 }
 
 const SETS = [...(Object.keys(CHARSETS) as (keyof typeof CHARSETS)[]), 'custom'] as const
@@ -57,8 +57,8 @@ export function Panel(p: Props) {
       </div>
       <div className="actions">
         <button type="button" onClick={p.onReroll}>reroll</button>
-        <button type="button" onClick={p.onCopy}>copy text</button>
-        <button type="button" onClick={p.onPng}>save png</button>
+        <button type="button" onClick={p.onText}>as text</button>
+        <button type="button" onClick={p.onPng}>as png</button>
       </div>
     </aside>
   )
