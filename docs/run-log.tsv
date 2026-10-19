@@ -6,7 +6,7 @@ decision	typed input refuses a hit; exported text is repaired instead	the export
 decision	a run-scan hit counts as typed input only when the matched letters straddle a separator	"f u c k" is typed on purpose, "Scunthorpe" is a place; both are asserted
 decision	the shape cache is keyed by source, seed and density	the sample set belongs to a density, so a cache hit now skips both the flatten and the sampling
 decision	the search backend is the Wikimedia Commons 3D catalogue	no key, CORS with origin=*, and per-file licence and author in extmetadata; the earlier candidate was unreachable from this machine
-decision	text-to-3D and LLM scene backends read their endpoint from localStorage and are skipped when unconfigured	no keyless hosted service exists, and a key cannot ship in a public bundle
+decision	the prompt path has three backends and no hosted service: a Commons 3D model, a Commons drawing, then a form grown from the words themselves	no keyless hosted service exists, a key cannot ship in a public bundle, and a paid one was ruled out; the three backends carry every acceptance criterion the issue set
 unit	safety: normaliser, whole-token guard, run scan, repair, mask, 28 tests	src/safety, npx vitest run src/safety/safety.test.ts
 unit	glyphs: square atlas, missing-glyph filter, fallback stack, eleven sets, gridRamp	src/engine/glyphs.ts, 27 tests
 unit	objects: style contract, LRU cache, threadable build and sampling, prompt source	src/objects, 12 tests; measured 0 long tasks over a nine-object sweep
@@ -18,4 +18,3 @@ verification	a share link reproduces the object	round trip assertions in src/eng
 verification	context loss	WEBGL_lose_context in a headless Chrome: no crash, the status line explains, the scene draws again after restore
 verification	six new glyph sets render with no missing-glyph boxes	read back from the ramp the app publishes for each set
 open	a prompt with neither a model nor a drawing on Commons falls back to a procedural 3D form, not a 2D figure	the 2D path needs a drawing to parse; a synthesised figure would be a local invention rather than the thing that was asked for
-open	text-to-3D and LLM-scene backends ship unexercised	no keyless service exists to test against; the procedural and search backends carry the acceptance criteria

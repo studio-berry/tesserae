@@ -96,9 +96,11 @@ file
 - Text export splats the visible dots into a fine depth buffer and gives each character cell the
   glyph its average ink calls for.
 
-## Two backends ship unexercised
+## Nothing here needs a key
 
-Hosted text-to-3D and LLM-scene endpoints need a key, and a key cannot live in a public bundle, so
-those adapters read their endpoint from `localStorage` and stay out of the way when unconfigured.
-The search and procedural backends cover the prompt path without them. Which hosted service to buy,
-and on what licence terms, is still open.
+The prompt path has three backends, and one of them always answers: a Wikimedia Commons model, a
+Wikimedia Commons drawing parsed into a flat figure, then a form grown from the words themselves.
+A hosted text-to-3D or LLM-scene backend was considered for the prompts those three miss, and it is
+deliberately out of scope, so no part of this app depends on a service that can be billed or
+withdrawn. A prompt that has neither a model nor a drawing on Commons gets a built form rather than
+an invented 2D figure.

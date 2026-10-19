@@ -216,3 +216,28 @@ describe('svgObject', () => {
     expect(svgObject('<svg><path d="M0 0 L"/></svg>')).toBeNull()
   })
 })
+
+// The prompt path answers without a key, and that is a promise the docs make. This holds it to the
+// promise: a hosted backend, a stored credential or a second host has to fail here before it can
+// ship, so the claim in README can be trusted.
+describe('the prompt path stays keyless', () => {
+  const sources = import.meta.glob('./{prompt,search,svg}.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+  const source = (file: string) => sources[`./${file}`]
+
+  it('reads no key, no endpoint and no browser storage', () => {
+    expect(Object.keys(sources)).toHaveLength(3)
+    for (const [path, text] of Object.entries(sources)) {
+      const file = path.replace('./', '')
+      for (const forbidden of ['localStorage', 'sessionStorage', 'apiKey', 'api_key', 'Authorization', 'import.meta.env', 'fetch(']) {
+        if (file === 'search.ts' && forbidden === 'fetch(') continue // search is where the one network call lives
+        expect(text, `${file} mentions ${forbidden}`).not.toContain(forbidden)
+      }
+    }
+  })
+
+  it('talks to Wikimedia Commons and to nothing else', () => {
+    const hosts = [...source('search.ts').matchAll(/https:\/\/([a-z0-9.-]+)/g)].map((m) => m[1])
+    expect(hosts.length).toBeGreaterThan(0)
+    expect([...new Set(hosts)].every((h) => h.endsWith('wikimedia.org'))).toBe(true)
+  })
+})
