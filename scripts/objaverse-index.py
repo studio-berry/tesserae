@@ -24,6 +24,7 @@ import random
 import re
 import sys
 import time
+import unicodedata
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -41,6 +42,72 @@ MAX_BYTES = 8_000_000
 MAX_FACES = 200_000
 
 PROMPTS = ['lighthouse', 'teapot', 'bicycle', 'skull', 'guitar', 'chair', 'car', 'dog', 'tree', 'castle']
+
+# No fan art and nothing explicit. Sketchfab tags run words together ('sexygirl', 'fnafar',
+# 'pokemon3d') or split them ('fan-art', 'sonic_the_hedgehog'), so fan-art STEMS match anywhere
+# inside a run of up to three words, and explicit ones inside one word (across words they find
+# 'happen is'). WORDS match whole words only, because as stems they would eat 'panasonic',
+# 'marionette', 'sextant' or 'Essex'. A ceiling fan is not fan art: 'fan' alone never counts.
+# Words cannot catch every franchise: the report samples what gets through.
+EXPLICIT_STEMS = ['nsfw', 'nude', 'naked', 'porn', 'hentai', 'lewd', 'erotic', 'sexy', 'boob', 'topless',
+                  'nipple', 'lingerie', 'fetish', 'ahegao', 'genital', 'penis', 'vagina', 'dildo', 'xxx']
+EXPLICIT_WORDS = {'sex', 'sexual', 'breast', 'breasts', 'bikini', 'thong', 'stripper', 'futa', 'yiff'}
+FANART_STEMS = ['fanart', 'fanmade', 'fanmodel', 'fangame', 'fanwork', 'fanfic', 'fandom', 'pokemon', 'pikachu',
+                'fnaf', 'fivenights', 'fortnite', 'minecraft', 'roblox', 'naruto', 'zelda', 'starwars',
+                'overwatch', 'genshin', 'undertale', 'deltarune', 'vrchat', 'disney', 'pixar', 'spongebob',
+                'deadpool', 'spiderman', 'batman', 'superman', 'avengers', 'harrypotter',
+                'hogwarts', 'finalfantasy', 'dragonball', 'leagueoflegends', 'valorant',
+                'warhammer40k', 'supermario', 'mariokart', 'mariobros', 'sonicthehedgehog', 'marvelcomics',
+                'marvelstudios', 'stormtrooper', 'darthvader', 'mandalorian', 'amongus', 'hellokitty',
+                'sailormoon', 'jojo', 'evangelion', 'gundam', 'hollowknight', 'cuphead', 'sirenhead',
+                'pokeball', 'startrek', 'residentevil', 'mortalkombat', 'dragonquest', 'enderman', 'persona4',
+                'persona5', 'magicthegathering', 'masterchief', 'tombraider', 'laracroft', 'metroid',
+                'kingdomhearts', 'streetfighter', 'tekken', 'godofwar', 'kratos', 'skyrim',
+                'elderscrolls', 'darksouls', 'eldenring', 'bloodborne', 'halflife', 'counterstrike', 'csgo',
+                'apexlegends', 'warcraft', 'starcraft', 'animalcrossing', 'splatoon', 'metalgear',
+                'assassinscreed', 'silenthill', 'gameofthrones', 'lordoftherings', 'gandalf',
+                'jurassicpark', 'ghostbusters', 'doctorwho', 'tardis', 'dalek', 'scoobydoo', 'winniethepooh',
+                'peppapig', 'pawpatrol', 'grandtheftauto', 'ironman', 'captainamerica', 'wonderwoman',
+                'harleyquinn', 'dccomics', 'robocop', 'godzilla', 'triforce', 'hyrule', 'plantsvszombies',
+                'veggietales', 'pokken', 'freefire', 'miraculousladybug', 'saintseiya', 'beetlejuice',
+                'friday13th', 'fridaythe13th', 'jasonvoorhees', 'titanfall', 'aloneinthedark', 'fornite',
+                'madeinabyss', 'fnati', 'couragethecowardlydog', 'hillclimbracing', 'hoth', 'fallout4',
+                'fallout76', 'nukacola', 'hellboy', 'mjolnir', 'mylittlepony', 'twilightsparkle',
+                'swordartonline', 'kirito', 'asiimov']
+FANART_WORDS = {'fanon', 'anime', 'manga', 'mmd', 'mario', 'luigi', 'bowser', 'yoshi', 'kirby', 'sonic',
+                'marvel', 'hulk', 'thanos', 'groot', 'yoda', 'vader', 'spyro', 'shrek', 'minion', 'minions',
+                'totoro', 'goku', 'pacman', 'mickey', 'simpsons', 'waifu', 'chibi', 'cosplay', 'jedi', 'sith',
+                'lightsaber', 'eevee', 'charmander', 'squirtle', 'bulbasaur', 'gengar', 'freddy', 'fazbear',
+                'springtrap', 'foxy', 'lego', 'gta', 'r2d2', 'c3po', 'bb8', 'xmen', 'lotr', 'witcher',
+                'transformers', 'thor'}
+CHARACTER_CATEGORIES = {'characters-creatures', 'people'}
+# the app's own refusal list, so no row says a word the prompt box would refuse
+SAFETY_WORDS = Path(__file__).resolve().parent.parent / 'src' / 'safety' / 'words.ts'
+
+
+def blocked_words():
+    text = SAFETY_WORDS.read_text(encoding='utf-8')
+    lists = re.findall(r'const [A-Z]+ = \[(.*?)\]', text, re.S)
+    return {w for body in lists for w in re.findall(r"'([a-z]+)'", body)}
+
+
+def fold(text: str):
+    """Lowercase ascii, so 'Pokémon' reads as 'pokemon' and not as 'pok' and 'mon'."""
+    return unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode().lower()
+
+
+def guard(stems, words, reach=3):
+    """A test for one kind of unwanted row, read over its title, tags and caption together. A stem
+    is looked for inside runs of up to `reach` words."""
+    inside = re.compile('|'.join(map(re.escape, stems)))
+
+    def flagged(text: str):
+        parts = re.findall(r'[a-z0-9]+', fold(text))
+        if words & set(parts):
+            return True
+        runs = (''.join(parts[i:i + n]) for n in range(1, reach + 1) for i in range(len(parts) - n + 1))
+        return bool(inside.search('\0'.join(runs)))
+    return flagged
 
 
 def fetch(url: str, dest: Path):
@@ -93,6 +160,8 @@ def load_meta(data: Path, wanted: set[str]):
                     'author': (user.get('displayName') or user.get('username') or '').strip(),
                     'url': m.get('viewerUrl') or f'https://sketchfab.com/3d-models/{uid}',
                     'name': (m.get('name') or '').strip(),
+                    'tags': ' '.join(t.get('name', '') for t in m.get('tags') or []),
+                    'categories': ' '.join(c.get('name', '') for c in m.get('categories') or []),
                     'adult': bool(m.get('isAgeRestricted')),
                     'faces': m.get('faceCount') or 0,
                     'bytes': glb.get('size') or 0,
@@ -111,6 +180,9 @@ def load(data: Path):
 def build(data: Path, min_score: int, log=print):
     """Every filter in order, logging the rows left after each, so the funnel is the report."""
     quality, paths, captions, meta = load(data)
+    fanart = guard(FANART_STEMS, FANART_WORDS)
+    explicit = guard(EXPLICIT_STEMS, EXPLICIT_WORDS | blocked_words(), reach=1)
+    said = lambda u, m: f"{m['name']} {m['tags']} {captions[u]}"
 
     steps = [
         ('objaverse++ rows', lambda u, q, m: True),
@@ -124,6 +196,13 @@ def build(data: Path, min_score: int, log=print):
         ('has a Cap3D caption', lambda u, q, m: u in captions),
         ('has an author', lambda u, q, m: bool(m['author'])),
         ('not age-restricted', lambda u, q, m: not m['adult']),
+        # most fan art is a character, and a character from someone else's world cannot be told
+        # apart by its words alone, so no figures at all
+        ('not a figure', lambda u, q, m: q['is_figure'] == 'false'),
+        # the author's own word that it is a character or a person, which Objaverse++ missed
+        ('not filed as character or person', lambda u, q, m: not CHARACTER_CATEGORIES & set(m['categories'].split())),
+        ('no fan art words', lambda u, q, m: not fanart(said(u, m))),
+        ('no explicit or blocked words', lambda u, q, m: not explicit(said(u, m))),
         (f'glb <= {MAX_BYTES // 1_000_000} MB, faces <= {MAX_FACES // 1000}K', lambda u, q, m: 0 < m['bytes'] <= MAX_BYTES and m['faces'] <= MAX_FACES),
     ]
     alive = list(quality)
@@ -142,6 +221,7 @@ def build(data: Path, min_score: int, log=print):
         'licence': LICENCES[meta[u]['licence']],
         # kept beside the row for the report; dropped from the written index unless --name
         '_name': meta[u]['name'],
+        '_tags': meta[u]['tags'],
         '_score': quality[u]['score'],
     } for u in alive]
     rows.sort(key=lambda r: (-r['_score'], len(r['caption']), r['uid']))
@@ -215,6 +295,10 @@ def report(data: Path):
     rng = random.Random(7)
     for r in rng.sample(strict, 20):
         print(f'  [{r["_name"][:28]:<28}] {r["caption"]}')
+    # read these by eye for fan art the word lists missed
+    print('\n# 100 random rows of the first 20K, with tags')
+    for r in rng.sample(strict[:20_000], 100):
+        print(f'  [{r["_name"][:28]:<28}] {r["_tags"][:40]:<40} | {r["caption"][:60]}')
 
     head = strict[:20_000]
     print('\n# prompt matches, caption only, first 20K of score = 3')
