@@ -20,8 +20,9 @@ const LOOKALIKE: Record<string, string> = {
   '\u03c1': 'p', '\u03c4': 't', '\u03c5': 'u', '\u03c7': 'x',
 }
 
-// Digits and symbols standing in for letters. A digit always counts; a symbol only when it sits
-// inside a word, so 'sh!t' reads but a trailing 'ass!' stays a word and a sentence keeps its mark.
+// Digits and symbols standing in for letters. A digit always counts; a symbol only when a word
+// carries on after it, so 'sh!t' and '$hit' both read, while a trailing 'ass!' stays a word and a
+// sentence keeps its mark.
 const LEET: Record<string, string> = {
   '0': 'o', '1': 'i', '2': 'z', '3': 'e', '4': 'a', '5': 's', '6': 'g', '7': 't', '8': 'b',
   '9': 'g', '@': 'a', $: 's', '!': 'i', '|': 'l', '+': 't', '\u20ac': 'e', '\u00a3': 'l',
@@ -47,7 +48,10 @@ function probe(text: string): Probe {
     const u = units[k], sub = LEET[u.ch]
     if (!sub) continue
     const word = (x?: Unit) => !!x && ALNUM.test(x.ch)
-    if (!DIGIT.test(u.ch) && !(word(units[k - 1]) && word(units[k + 1]))) continue
+    // a leading mark counts too: whoever wrote '$hit' meant the word, and a mark that closes a word
+    // still does not count, so 'ass!' and 'hi!' keep their punctuation
+    const leading = !units[k - 1] || !ALNUM.test(units[k - 1].ch)
+    if (!DIGIT.test(u.ch) && !(word(units[k + 1]) && (leading || word(units[k - 1])))) continue
     u.ch = sub
   }
   const wide: string[] = [], narrow: string[] = [], at: number[] = [], to: number[] = []

@@ -89,6 +89,21 @@ describe('checkTyped', () => {
     expect(checkTyped('fuckfuck').ok).toBe(false)
   })
 
+  it('reads a symbol standing in for the first letter of a word', () => {
+    const dollar = BLOCKED.find((e) => e.word.startsWith('s'))!.word
+    const at = BLOCKED.find((e) => e.word.startsWith('a'))!.word
+    const bang = BLOCKED.find((e) => e.word.startsWith('i'))?.word
+    expect(checkTyped('$' + dollar.slice(1)).ok).toBe(false)
+    expect(checkTyped('@' + at.slice(1)).ok).toBe(false)
+    if (bang) expect(checkTyped('!' + bang.slice(1)).ok).toBe(false)
+  })
+
+  it('still accepts a price, a handle and a sentence with a mark in it', () => {
+    expect(checkTyped('$5 note').ok).toBe(true)
+    expect(checkTyped('hi! there').ok).toBe(true)
+    expect(checkTyped('a bowl of soup!').ok).toBe(true)
+  })
+
   it('still accepts a place name that contains a shorter blocked word', () => {
     for (const place of ['Scunthorpe', 'Penistone', 'Cockburn', 'Lightwater', 'therapist', 'assassin', 'classic']) {
       expect(checkTyped(place)).toEqual({ ok: true })

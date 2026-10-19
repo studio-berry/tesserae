@@ -31,8 +31,9 @@ vec2 tileUV(float i, vec2 local) {
 }
 ```
 
-Three uploads canvas textures with `flipY` on, so texture row 0 is the top of the canvas. A
-single-row atlas with this formula reduces to the old `(idx + x) / count, 1.0 - y`.
+Three uploads canvas textures with `flipY` off, so texture row 0 is the top of the canvas,
+which is what makes the formula above address the atlas as written. A single-row atlas with this
+formula reduces to the old `(idx + x) / count, 1.0 - y`.
 
 ## Safety
 
