@@ -5,7 +5,7 @@ import { Font, FontData, FontLoader } from 'three/examples/jsm/loaders/FontLoade
 let font: Font | null = null
 
 // Long phrases wrap onto lines of about ten characters, so the type stays big enough to read in glyphs
-export function wrap(text: string, width = 10) {
+export const wrap = (text: string, width = 10) => {
   const words = text.trim().split(/\s+/), lines: string[] = []
   for (const w of words) {
     const last = lines[lines.length - 1]
@@ -16,7 +16,7 @@ export function wrap(text: string, width = 10) {
 }
 
 // Extruded, bevelled type; the font loads on first use so it stays out of the initial bundle
-export async function textObject(text: string) {
+export const textObject = async (text: string) => {
   if (!font) {
     const json = (await import('three/examples/fonts/helvetiker_bold.typeface.json')).default
     font = new FontLoader().parse(json as unknown as FontData)

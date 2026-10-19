@@ -4,7 +4,7 @@ import { ParametricGeometry } from 'three/examples/jsm/geometries/ParametricGeom
 import { TeapotGeometry } from 'three/examples/jsm/geometries/TeapotGeometry.js'
 import { SimplexNoise } from 'three/examples/jsm/math/SimplexNoise.js'
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { Rng } from '../engine/core'
+import { PALETTE, Rng } from '../engine/core'
 
 // Built-in objects. Each takes a seeded rng: seed 0 gives the canonical form, any other seed a
 // variation (a different knot, solid, shell or rock), which is what "reroll" asks for.
@@ -16,14 +16,13 @@ const pick = <T,>(rng: Rng, a: readonly T[]) => a[Math.floor(rng() * a.length) %
 const f2 = (x: number) => x.toFixed(2).replace(/\.?0+$/, '')
 
 // a thin cylinder from a to b, for edges and rungs
-function rod(a: THREE.Vector3, b: THREE.Vector3, r: number, seg = 8) {
+const rod = (a: THREE.Vector3, b: THREE.Vector3, r: number, seg = 8) => {
   const d = new THREE.Vector3().subVectors(b, a), g = new THREE.CylinderGeometry(r, r, d.length(), seg, 1, true)
   g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize()))
   g.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2)
   return g
 }
 
-// ---------------------------------------------------------------- supershape
 // Gielis' superformula in 3D: a handful of numbers span stars, shells, flowers and blobs, so
 // every reroll grows a new form.
 const ss = (t: number, m: number, n1: number, n2: number, n3: number) => {
@@ -50,7 +49,6 @@ const supershape: LibItem = {
   },
 }
 
-// ---------------------------------------------------------------- donut
 const donut: LibItem = {
   id: 'donut', name: 'donut',
   build: (rng, seed) => {
@@ -59,7 +57,6 @@ const donut: LibItem = {
   },
 }
 
-// ---------------------------------------------------------------- teapot
 const teapot: LibItem = {
   id: 'teapot', name: 'teapot',
   build: (_rng, seed) => {
@@ -69,7 +66,6 @@ const teapot: LibItem = {
   },
 }
 
-// ---------------------------------------------------------------- knot
 const KNOTS: [number, number][] = [[2, 3], [3, 5], [2, 5], [3, 7], [3, 4], [2, 7], [4, 5], [5, 6], [3, 8]]
 const knot: LibItem = {
   id: 'knot', name: 'knot',
@@ -81,7 +77,6 @@ const knot: LibItem = {
   },
 }
 
-// ---------------------------------------------------------------- crystal
 const SOLIDS = [
   { name: 'Icosahedron', make: () => new THREE.IcosahedronGeometry(1, 0) },
   { name: 'Dodecahedron', make: () => new THREE.DodecahedronGeometry(1, 0) },
@@ -101,13 +96,12 @@ const crystal: LibItem = {
     const a = new THREE.Vector3(), b = new THREE.Vector3()
     for (let i = 0; i < e.count; i += 2) rods.push(rod(a.fromBufferAttribute(e, i), b.fromBufferAttribute(e, i + 1), 0.018, 6))
     const group = new THREE.Group()
-    group.add(mesh(g), mesh(mergeGeometries(rods), '#ffd08a'))
+    group.add(mesh(g), mesh(mergeGeometries(rods), PALETTE.rod))
     group.rotation.set(0.35, 0.2, 0.1)
     return { object: group, title: s.name, detail: `platonic solid · ${g.attributes.position.count / 3} faces` }
   },
 }
 
-// ---------------------------------------------------------------- shell
 // a logarithmic seashell: the tube grows exponentially as it winds
 const shell: LibItem = {
   id: 'shell', name: 'shell',
@@ -122,7 +116,6 @@ const shell: LibItem = {
   },
 }
 
-// ---------------------------------------------------------------- klein
 const kleinBottle: LibItem = {
   id: 'klein', name: 'klein',
   build: () => {
@@ -132,7 +125,7 @@ const kleinBottle: LibItem = {
   },
 }
 
-// ---------------------------------------------------------------- helix
+// three's Curve constructor is protected, so a curve of our own has to be a class
 class Helix extends THREE.Curve<THREE.Vector3> {
   constructor(private turns: number, private phase: number, private h: number, private r: number) { super() }
   getPoint(t: number, out = new THREE.Vector3()) {
@@ -140,14 +133,14 @@ class Helix extends THREE.Curve<THREE.Vector3> {
     return out.set(this.r * Math.cos(a), (t - 0.5) * this.h, this.r * Math.sin(a))
   }
 }
-const BASES = { A: '#ff9c62', T: '#4fd1a5', C: '#c08bff', G: '#f2c94c' }
+const BASES = { A: PALETTE.baseA, T: PALETTE.baseT, C: PALETTE.baseC, G: PALETTE.baseG }
 const helix: LibItem = {
   id: 'helix', name: 'helix',
   build: (rng, seed) => {
     const turns = seed ? 1.6 + rng() * 1.2 : 2.2, H = 4.4, Rr = 0.9, groove = 0.78 * Math.PI
     const group = new THREE.Group()
     const s1 = new Helix(turns, 0, H, Rr), s2 = new Helix(turns, groove, H, Rr)
-    group.add(mesh(mergeGeometries([new THREE.TubeGeometry(s1, 420, 0.12, 12), new THREE.TubeGeometry(s2, 420, 0.12, 12)]), '#8fa6d6'))
+    group.add(mesh(mergeGeometries([new THREE.TubeGeometry(s1, 420, 0.12, 12), new THREE.TubeGeometry(s2, 420, 0.12, 12)]), PALETTE.strand))
     const n = Math.round(turns * 10.5), byBase: Record<string, THREE.BufferGeometry[]> = { A: [], T: [], C: [], G: [] }
     let seq = ''
     for (let k = 0; k < n; k++) {
@@ -161,7 +154,6 @@ const helix: LibItem = {
   },
 }
 
-// ---------------------------------------------------------------- asteroid
 const asteroid: LibItem = {
   id: 'asteroid', name: 'asteroid',
   build: (rng, seed) => {

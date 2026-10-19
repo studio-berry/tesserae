@@ -28,7 +28,7 @@ export type Samples = {
 }
 
 // Centre on the bounding box and scale so the farthest point sits at radius R
-export function normalize(pos: Float32Array, radius = R) {
+export const normalize = (pos: Float32Array, radius = R) => {
   let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity
   for (let i = 0; i < pos.length; i += 3) {
     const x = pos[i], y = pos[i + 1], z = pos[i + 2]
@@ -58,13 +58,13 @@ const part = (n: number) => {
 
 // Sort samples along a Z-order curve. Two objects sorted this way morph coherently: dot i of
 // one lands near dot i of the other, so a change of object flows instead of scrambling.
-export function mortonOrder(pos: Float32Array, n: number, radius = R): Uint32Array {
+export const mortonOrder = (pos: Float32Array, n: number, radius = R): Uint32Array => {
   const keys = new Uint32Array(n), q = (v: number) => Math.max(0, Math.min(1023, ((v / radius + 1) / 2) * 1023)) | 0
   for (let i = 0; i < n; i++) keys[i] = (part(q(pos[i * 3])) | (part(q(pos[i * 3 + 1])) << 1) | (part(q(pos[i * 3 + 2])) << 2)) >>> 0
   return Uint32Array.from({ length: n }, (_, i) => i).sort((a, b) => keys[a] - keys[b])
 }
 
-function permute(s: Samples, order: Uint32Array): Samples {
+const permute = (s: Samples, order: Uint32Array): Samples => {
   const pos = new Float32Array(s.count * 3), nrm = new Float32Array(s.count * 3), col = s.col ? new Float32Array(s.count * 3) : null
   order.forEach((src, dst) => {
     pos.set(s.pos.subarray(src * 3, src * 3 + 3), dst * 3)
@@ -77,7 +77,7 @@ function permute(s: Samples, order: Uint32Array): Samples {
 // Dart throwing on a hash grid: walk the candidates in their (random) order and keep each one
 // that has no kept neighbour closer than r. The result is an even, blue-noise spread, so glyphs
 // tile the surface without clumping or leaving holes.
-export function dart(cp: Float32Array, nc: number, r: number, max: number): number[] {
+export const dart = (cp: Float32Array, nc: number, r: number, max: number): number[] => {
   const off = R * 1.05, cell = Math.max(r, (2 * off) / 127), dim = Math.ceil((2 * off) / cell) + 1
   const head = new Int32Array(dim * dim * dim).fill(-1), next = new Int32Array(nc).fill(-1)
   const r2 = r * r, out: number[] = []
@@ -100,7 +100,7 @@ export function dart(cp: Float32Array, nc: number, r: number, max: number): numb
   return out
 }
 
-export function soupArea(s: Soup) {
+export const soupArea = (s: Soup) => {
   const cdf = new Float64Array(s.tris), P = s.pos
   let A = 0
   for (let t = 0; t < s.tris; t++) {
@@ -113,7 +113,7 @@ export function soupArea(s: Soup) {
   return { A, cdf }
 }
 
-export function sampleSoup(s: Soup, count: number, rng: Rng): Samples {
+export const sampleSoup = (s: Soup, count: number, rng: Rng): Samples => {
   const { A, cdf } = soupArea(s)
   const P = s.pos
   if (!(A > 0)) return sampleCloud({ n: s.tris * 3, pos: P, nrm: s.nrm, col: null }, count, rng)
@@ -176,7 +176,7 @@ export function sampleSoup(s: Soup, count: number, rng: Rng): Samples {
 
 // Smallest-eigenvalue eigenvector of a symmetric 3x3 matrix (cyclic Jacobi), i.e. the normal of
 // the plane that best fits a neighbourhood of points
-export function planeNormal(m: number[]): [number, number, number] {
+export const planeNormal = (m: number[]): [number, number, number] => {
   const a = [[m[0], m[1], m[2]], [m[1], m[3], m[4]], [m[2], m[4], m[5]]]
   const v = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
   for (let sweep = 0; sweep < 12; sweep++) {
@@ -195,7 +195,7 @@ export function planeNormal(m: number[]): [number, number, number] {
 
 // Normals for a scan that came without them: fit a plane to each point's neighbours on a hash
 // grid, then turn it to face away from the centre
-function cloudNormals(c: Cloud, picks: Uint32Array, n: number, spacing: number): Float32Array {
+const cloudNormals = (c: Cloud, picks: Uint32Array, n: number, spacing: number): Float32Array => {
   const r = spacing * 2.2, off = R * 1.05, cell = Math.max(r, (2 * off) / 127), dim = Math.ceil((2 * off) / cell) + 1
   const ix = (x: number) => Math.max(0, Math.min(dim - 1, ((x + off) / cell) | 0))
   const head = new Int32Array(dim * dim * dim).fill(-1), next = new Int32Array(c.n)
@@ -226,7 +226,7 @@ function cloudNormals(c: Cloud, picks: Uint32Array, n: number, spacing: number):
   return out
 }
 
-export function sampleCloud(c: Cloud, count: number, rng: Rng): Samples {
+export const sampleCloud = (c: Cloud, count: number, rng: Rng): Samples => {
   const idx = Uint32Array.from({ length: c.n }, (_, i) => i)
   const n = Math.min(count, c.n)
   for (let i = 0; i < n; i++) { const j = i + ((rng() * (c.n - i)) | 0); const t = idx[i]; idx[i] = idx[j]; idx[j] = t }

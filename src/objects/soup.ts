@@ -1,12 +1,12 @@
 import * as THREE from 'three'
-import { Cloud, Material, Soup, TexSampler } from './sample'
+import { Cloud, Material, Soup, TexSampler, normalize } from './sample'
 
 const SRGB = Float32Array.from({ length: 256 }, (_, i) => { const c = i / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4 })
 const LIN = Float32Array.from({ length: 256 }, (_, i) => i / 255)
 
 // Reads a texture's pixels once (scaled down to 512 px) and samples it by uv, honouring the
 // texture's transform, wrapping and flip, so textured models keep their colours.
-function texSampler(tex: THREE.Texture): TexSampler | null {
+const texSampler = (tex: THREE.Texture): TexSampler | null => {
   const img = tex.image as (CanvasImageSource & { width: number; height: number }) | undefined
   if (!img || !img.width || !img.height || 'data' in (img as object)) return null
   const k = Math.min(1, 512 / Math.max(img.width, img.height))
@@ -35,7 +35,7 @@ function texSampler(tex: THREE.Texture): TexSampler | null {
 type Part = { geo: THREE.BufferGeometry; matrix: THREE.Matrix4; material: THREE.Material | THREE.Material[] }
 
 // Flattens every mesh under root into one triangle soup in root's space; points become a cloud
-export function soupFrom(root: THREE.Object3D): { soup: Soup | null; cloud: Cloud | null } {
+export const soupFrom = (root: THREE.Object3D): { soup: Soup | null; cloud: Cloud | null } => {
   root.updateMatrixWorld(true)
   const inv = new THREE.Matrix4().copy(root.matrixWorld).invert()
   const parts: Part[] = [], points: Part[] = []
@@ -129,7 +129,32 @@ export function soupFrom(root: THREE.Object3D): { soup: Soup | null; cloud: Clou
   return { soup, cloud }
 }
 
-function faceNormal(pos: Float32Array, nrm: Float32Array, t: number) {
+// What every caller needs after flattening: centred on the origin, farthest point at radius R
+export const surfaceFrom = (root: THREE.Object3D) => {
+  const { soup, cloud } = soupFrom(root)
+  if (soup && soup.tris > 0) {
+    normalize(soup.pos)
+    return { soup, cloud: null }
+  }
+  if (cloud && cloud.n > 0) {
+    normalize(cloud.pos)
+    return { soup: null, cloud }
+  }
+  return { soup: null, cloud: null }
+}
+
+// Type is read from the front: its faces get the full share of glyphs, the side walls (which
+// hold most of the area but are seen edge-on) a quarter, and the back none
+export const frontWeighted = (s: Soup): Soup => {
+  const weight = new Float32Array(s.tris)
+  for (let t = 0; t < s.tris; t++) {
+    const nz = (s.nrm[t * 9 + 2] + s.nrm[t * 9 + 5] + s.nrm[t * 9 + 8]) / 3
+    weight[t] = nz > 0.7 ? 1 : nz < -0.7 ? 0 : 0.25
+  }
+  return { ...s, weight }
+}
+
+const faceNormal = (pos: Float32Array, nrm: Float32Array, t: number) => {
   const o = t * 9
   const ux = pos[o + 3] - pos[o], uy = pos[o + 4] - pos[o + 1], uz = pos[o + 5] - pos[o + 2]
   const vx = pos[o + 6] - pos[o], vy = pos[o + 7] - pos[o + 1], vz = pos[o + 8] - pos[o + 2]

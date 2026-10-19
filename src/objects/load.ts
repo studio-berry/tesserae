@@ -13,7 +13,7 @@ const ext = (name: string) => name.split('.').pop()!.toLowerCase()
 const base = (url: string) => decodeURIComponent(url.split(/[\\/]/).pop()!.split('?')[0])
 
 // Waits for every texture the loaders queued through this manager, so colours can be sampled
-function tracked(blobs: Map<string, string>) {
+const tracked = (blobs: Map<string, string>) => {
   const manager = new THREE.LoadingManager()
   // a .gltf or .obj names its buffers and textures by relative path; serve the dropped files instead
   manager.setURLModifier((url) => blobs.get(base(url)) ?? url)
@@ -31,7 +31,7 @@ function tracked(blobs: Map<string, string>) {
 export type Loaded = { object: THREE.Object3D; name: string; bytes: number }
 
 // Takes everything the user dropped or picked, finds the model among it, and parses it
-export async function loadFiles(files: File[]): Promise<Loaded> {
+export const loadFiles = async (files: File[]): Promise<Loaded> => {
   const main = MODEL_EXT.map((e) => files.find((f) => ext(f.name) === e)).find(Boolean)
   if (!main) throw new Error(`No model found. Drop a ${MODEL_EXT.join(', ')} file.`)
   const blobs = new Map(files.map((f) => [f.name, URL.createObjectURL(f)] as const))
