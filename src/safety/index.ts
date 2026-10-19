@@ -154,7 +154,7 @@ const firstHit = (text: string): Hit | null => {
 const nudge = (glyph: string, ramp: string) => {
   const glyphs = [...ramp].filter((g) => g.trim())
   const n = glyphs.length
-  if (!n) return ''
+  if (!n) return ' ' // an empty ramp cannot offer a neighbour, and a gap still breaks the word
   const same = (g: string) => g.toLowerCase() === glyph.toLowerCase()
   const at = glyphs.findIndex(same)
   // a ramp of blocks has no letter to step from; the middle weight is the nearest guess
@@ -165,7 +165,8 @@ const nudge = (glyph: string, ramp: string) => {
     if (up !== undefined && !same(up)) return up
     if (down !== undefined && !same(down)) return down
   }
-  return ''
+  // a ramp of one glyph has no neighbour to step to; a stray space beats leaving the word readable
+  return glyphs.find((g) => !same(g)) ?? ' '
 }
 
 export const scanLine = (line: string, ramp: string) => {

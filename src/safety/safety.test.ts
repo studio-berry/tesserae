@@ -118,6 +118,13 @@ describe('scanLine', () => {
     expect(blockedRun(out)).toBeNull()
   })
 
+  it('blanks the hit rather than leave it, when the ramp has nothing else to offer', () => {
+    const out = scanLine('ass', '#')
+    expect(out).toBe('a#s')
+    expect(blockedRun(out)).toBeNull()
+    expect(scanLine('ass', ' ')).not.toContain('ass')
+  })
+
   it('clears every hit on the line', () => {
     const out = scanLine('ass and shit', RAMP)
     expect(blockedRun(out)).toBeNull()
