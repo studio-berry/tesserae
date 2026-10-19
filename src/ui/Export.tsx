@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 
 export type ExportItem = { kind: 'text'; text: string } | { kind: 'png'; url: string }
 
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'gen-ascii'
+
 // Shows what an export produced: the ASCII itself (with a copy button) or the PNG. Showing it
 // instead of only downloading also works where downloads are blocked, such as embedded frames.
-export function Export({ item, onClose }: { item: ExportItem; onClose: () => void }) {
+export function Export({ item, onClose, caption }: { item: ExportItem; onClose: () => void; caption?: string }) {
   const pre = useRef<HTMLPreElement>(null)
   const [note, setNote] = useState('')
   useEffect(() => {
@@ -17,18 +19,18 @@ export function Export({ item, onClose }: { item: ExportItem; onClose: () => voi
     if (item.kind !== 'text') return
     try {
       await navigator.clipboard.writeText(item.text)
-      setNote('Copied')
+      setNote('copied')
     } catch {
       // clipboard refused: select the text so the system copy command takes it
       const sel = getSelection(), range = document.createRange()
       if (pre.current && sel) { range.selectNodeContents(pre.current); sel.removeAllRanges(); sel.addRange(range) }
-      setNote('Selected. Copy it with your system shortcut.')
+      setNote('selected. copy it with your system shortcut.')
     }
   }
   const save = () => {
     if (item.kind !== 'png') return
     const a = document.createElement('a')
-    a.href = item.url; a.download = 'gen-ascii.png'
+    a.href = item.url; a.download = `${slug(caption ?? 'gen-ascii')}.png`
     document.body.appendChild(a); a.click(); a.remove()
   }
   const lines = item.kind === 'text' ? item.text.split('\n') : []
@@ -36,7 +38,7 @@ export function Export({ item, onClose }: { item: ExportItem; onClose: () => voi
   const embedded = window.self !== window.top
 
   return (
-    <div className="export" role="dialog" aria-modal="true" aria-label={item.kind === 'text' ? 'Text export' : 'Image export'} onClick={onClose}>
+    <div className="export" role="dialog" aria-modal="true" aria-label={item.kind === 'text' ? 'text export' : 'image export'} onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <div className="eyebrow">
           <span>{item.kind === 'text' ? 'plain text' : 'png'}</span>
@@ -44,7 +46,8 @@ export function Export({ item, onClose }: { item: ExportItem; onClose: () => voi
         </div>
         {item.kind === 'text'
           ? <pre ref={pre} className="ascii">{item.text}</pre>
-          : <img className="shot" src={item.url} alt="The current view as an image" />}
+          : <img className="shot" src={item.url} alt="the current view as an image" />}
+        <p className="caption">{caption ?? 'gen-ascii'}</p>
         <div className="actions">
           {item.kind === 'text' ? <button type="button" onClick={copy}>copy</button> : !embedded && <button type="button" onClick={save}>download</button>}
           <button type="button" onClick={onClose}>close</button>

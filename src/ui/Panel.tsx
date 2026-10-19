@@ -9,6 +9,8 @@ type Props = {
   tint: TintId; setTint: (t: TintId) => void; hasColor: boolean
   density: number; setDensity: (n: number) => void
   spin: boolean; setSpin: (b: boolean) => void
+  surprise?: boolean; setSurprise?: (b: boolean) => void
+  edges?: boolean; setEdges?: (b: boolean) => void
   onBurst: () => void; onReroll: () => void; onText: () => void; onPng: () => void
 }
 
@@ -52,11 +54,18 @@ export function Panel(p: Props) {
         <span className="label">motion</span>
         <div className="chips">
           <button type="button" className={p.spin ? 'on' : ''} aria-pressed={p.spin} onClick={() => p.setSpin(!p.spin)}>spin</button>
-          <button type="button" onClick={p.onBurst}>scatter</button>
+          <button type="button" className={p.surprise ? 'on' : ''} aria-pressed={!!p.surprise} onClick={() => p.setSurprise?.(!p.surprise)}>surprise</button>
+        </div>
+      </div>
+      <div className="row">
+        <span className="label">look</span>
+        <div className="chips">
+          <button type="button" className={p.edges ? 'on' : ''} aria-pressed={!!p.edges} onClick={() => p.setEdges?.(!p.edges)}>edges</button>
         </div>
       </div>
       <div className="actions">
         <button type="button" onClick={p.onReroll}>reroll</button>
+        <button type="button" onClick={p.onBurst}>scatter</button>
         <button type="button" onClick={p.onText}>as text</button>
         <button type="button" onClick={p.onPng}>as png</button>
       </div>
