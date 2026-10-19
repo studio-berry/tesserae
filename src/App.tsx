@@ -1,53 +1,53 @@
 import { Canvas } from '@react-three/fiber'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Mode, Theme, TintId, TINTS } from './engine/core'
-import { buildAtlas, CHARSETS, CharsetId, charsFor } from './engine/glyphs'
+import { Component, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import * as THREE from 'three'
+import { Mode, THEMES, Theme, TintId } from './engine/core'
+import { buildAtlas, CHARSETS, CharsetId, charsFor, gridRamp } from './engine/glyphs'
 import { stageApi } from './engine/info'
 import { Post } from './engine/Post'
 import { Stage } from './engine/Stage'
+import { applyTokens } from './engine/tokens'
+import { defaultDensity, MODES, readUrl, writeUrl } from './engine/url'
 import { prepare, Shape, Source } from './objects'
 import { LIBRARY } from './objects/library'
 import { ACCEPT } from './objects/formats'
+import { checkTyped, maskName, scanLine } from './safety'
 import { Export, ExportItem } from './ui/Export'
+import { Coach, Frame } from './ui/Frame'
 import { Hud } from './ui/Hud'
 import { Panel } from './ui/Panel'
 
-const MODES: Mode[] = ['letters', 'grid', 'dots']
 const HINT = 'drag to turn · tap to ripple · drop a model anywhere'
 const systemDark = () => matchMedia('(prefers-color-scheme: dark)').matches
-// phones start with fewer, larger glyphs
-const DEFAULT_DENSITY = Math.min(innerWidth, innerHeight) < 500 ? 4500 : 6000
+const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches
+const FADE = 150
 
-// Settings live in the URL so a view can be shared (dropped files excepted)
-function readUrl() {
-  const q = new URLSearchParams(location.search)
-  const o = q.get('o'), text = q.get('text')
-  const source: Source = text ? { kind: 'text', text } : { kind: 'library', id: LIBRARY.some((l) => l.id === o) ? o! : LIBRARY[0].id }
-  const pickOf = <T extends string>(v: string | null, all: readonly T[], d: T) => (all.includes(v as T) ? (v as T) : d)
-  return {
-    source, text: text ?? 'ascii',
-    seed: Math.max(0, parseInt(q.get('seed') ?? '0') || 0),
-    density: Math.max(1500, Math.min(12000, parseInt(q.get('n') ?? '') || DEFAULT_DENSITY)),
-    mode: pickOf(q.get('mode'), MODES, 'letters'),
-    theme: pickOf(q.get('theme') ?? document.documentElement.dataset.theme ?? null, ['dark', 'light'] as const, systemDark() ? 'dark' : 'light'),
-    tint: pickOf(q.get('ink'), [...TINTS.map((t) => t.id), 'source'] as TintId[], 'ivory'),
-    charset: pickOf(q.get('glyphs'), [...Object.keys(CHARSETS), 'custom'] as CharsetId[], 'letters'),
-  }
+// A renderer that fails must not take the page with it: the canvas is one element of the app, and
+// the caption, the controls and the exports all still work without it.
+class CanvasGuard extends Component<{ children: ReactNode; onError: (message: string) => void }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  componentDidCatch(err: Error) { this.props.onError(err.message || 'The scene stopped.') }
+  render() { return this.state.failed ? null : this.props.children }
 }
 
 export default function App() {
-  const init = useMemo(readUrl, [])
+  const init = useMemo(() => readUrl(location.search, defaultDensity(innerWidth, innerHeight), systemDark() ? 'dark' : 'light'), [])
   const [source, setSource] = useState<Source>(init.source)
   const [text, setText] = useState(init.text)
+  const [prompt, setPrompt] = useState(init.prompt)
   const [seed, setSeed] = useState(init.seed)
   const [density, setDensity] = useState(init.density)
   const [draftDensity, setDraftDensity] = useState(init.density)
   const [mode, setMode] = useState<Mode>(init.mode)
+  const [shown, setShown] = useState<Mode>(init.mode)
   const [theme, setTheme] = useState<Theme>(init.theme)
   const [tint, setTint] = useState<TintId>(init.tint)
   const [charset, setCharset] = useState<CharsetId>(init.charset)
   const [custom, setCustom] = useState('')
-  const [spin, setSpin] = useState(true)
+  const [spin, setSpin] = useState(() => !reduced())
+  const [surprise, setSurprise] = useState(false)
+  const [edges, setEdges] = useState(true)
   const [shape, setShape] = useState<Shape | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
@@ -55,30 +55,56 @@ export default function App() {
   const [dragging, setDragging] = useState(false)
   const [fontsReady, setFontsReady] = useState(false)
   const [tune, setTune] = useState(false)
+  const [gen, setGen] = useState(0) // bumped when the graphics context comes back, to rebuild everything
+  const [exported, setExported] = useState<ExportItem | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const touched = useRef(false) // the density slider has been moved by hand
 
   useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
+  useEffect(() => { applyTokens(theme) }, [theme])
   // the glyph atlas is drawn in Plex Mono; wait so it rasterises the right shapes
   useEffect(() => { document.fonts.load('500 54px "IBM Plex Mono"').finally(() => setFontsReady(true)) }, [])
 
+  const ramps = useMemo(() => {
+    const c = charsFor(charset, custom)
+    return { full: c.chars, grid: gridRamp(c.chars), jitter: c.jitter }
+  }, [charset, custom])
+  // grid mode drops vowel letters from its ramp: rows of adjacent glyphs cannot be scanned, so the
+  // letters that would let a word form are simply not there
+  const ramp = mode === 'grid' ? ramps.grid : ramps.full
+
   const atlas = useMemo(() => {
     if (!fontsReady) return null
-    const c = charsFor(charset, custom)
-    return buildAtlas(c.chars, c.jitter)
-  }, [fontsReady, charset, custom])
+    return buildAtlas(ramp, ramps.jitter)
+  }, [fontsReady, ramp, ramps.jitter, gen])
   useEffect(() => () => atlas?.tex.dispose(), [atlas])
 
   // the slider moves freely; the object resamples once it rests
   useEffect(() => { const t = setTimeout(() => setDensity(draftDensity), 250); return () => clearTimeout(t) }, [draftDensity])
 
-  // typing rebuilds the type a moment after the last key
+  // a rotation of the device or a resize changes how many glyphs suit the screen, but never overrides
+  // a density the user set by hand
+  useEffect(() => {
+    const resize = () => { if (!touched.current) { const d = defaultDensity(innerWidth, innerHeight); setDraftDensity(d); setDensity(d) } }
+    window.addEventListener('resize', resize)
+    return () => window.removeEventListener('resize', resize)
+  }, [])
+
+  // typing rebuilds the type a moment after the last key, and refuses a word that is on the list
   useEffect(() => {
     if (source.kind !== 'text') return
     const clean = text.trim().slice(0, 40)
     if (!clean || clean === source.text) return
-    const t = setTimeout(() => setSource({ kind: 'text', text: clean }), 400)
+    const t = setTimeout(() => submitText(clean), 400)
     return () => clearTimeout(t)
-  }, [text, source])
+  }, [text, source]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (source.kind !== 'prompt') return
+    const clean = prompt.trim().slice(0, 60)
+    if (!clean || clean === source.text) return
+    const t = setTimeout(() => submitPrompt(clean), 500)
+    return () => clearTimeout(t)
+  }, [prompt, source]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let live = true
@@ -86,25 +112,40 @@ export default function App() {
     // yield a frame first so the UI shows the change before sampling blocks the thread
     const t = setTimeout(() => {
       prepare(source, density, seed)
-        .then((s) => { if (live) { setShape(s); setError('') } })
-        .catch((err: Error) => { if (live) setError(err.message || 'Could not build that object.') })
-        .finally(() => { if (live) setBusy(false) })
+        .then((s) => { if (live) { setShape(s); setError(''); setBusy(false) } })
+        .catch((err: Error) => { if (live) { setError(err.message || 'Could not build that object.'); setBusy(false) } })
     }, 16)
     return () => { live = false; clearTimeout(t) }
   }, [source, density, seed])
 
   useEffect(() => {
-    const q = new URLSearchParams()
-    if (source.kind === 'library') q.set('o', source.id)
-    if (source.kind === 'text') q.set('text', source.text)
-    if (seed) q.set('seed', String(seed))
-    if (density !== DEFAULT_DENSITY) q.set('n', String(density))
-    if (mode !== 'letters') q.set('mode', mode)
-    q.set('theme', theme)
-    if (tint !== 'ivory') q.set('ink', tint)
-    if (charset !== 'letters') q.set('glyphs', charset)
-    try { history.replaceState(null, '', `${location.pathname}?${q}`) } catch { /* sandboxed: sharing via URL just won't work */ }
-  }, [source, seed, density, mode, theme, tint, charset])
+    const next = writeUrl({ source, text, prompt, seed, density, mode, theme, tint, charset }, defaultDensity(innerWidth, innerHeight))
+    try { history.replaceState(null, '', `${location.pathname}${next}`) } catch { /* sandboxed: sharing via URL just won't work */ }
+  }, [source, text, prompt, seed, density, mode, theme, tint, charset])
+
+  // the canvas dims for one transition, the mode swaps while it is down, and it comes back up: that
+  // reads as a crossfade without rendering both modes at once
+  useEffect(() => {
+    if (mode === shown) return
+    const t = setTimeout(() => setShown(mode), FADE)
+    return () => clearTimeout(t)
+  }, [mode, shown])
+
+  const submitText = useCallback((raw: string) => {
+    const clean = raw.trim().slice(0, 40)
+    if (!clean) return
+    const verdict = checkTyped(clean)
+    if (!verdict.ok) { setError(verdict.reason); return } // the previous object stays on screen
+    setError(''); setSource({ kind: 'text', text: clean })
+  }, [])
+
+  const submitPrompt = useCallback((raw: string) => {
+    const clean = raw.trim().slice(0, 60)
+    if (!clean) return
+    const verdict = checkTyped(clean)
+    if (!verdict.ok) { setError(verdict.reason); return }
+    setError(''); setSource({ kind: 'prompt', text: clean }); setSeed(0)
+  }, [])
 
   const openFiles = useCallback(async (files: File[]) => {
     if (!files.length) return
@@ -136,39 +177,110 @@ export default function App() {
   }, [openFiles])
 
   const pickLibrary = useCallback((id: string) => { setSource({ kind: 'library', id }); setSeed(0) }, [])
-  const reroll = useCallback(() => setSeed((s) => s + 1), [])
-  const [exported, setExported] = useState<ExportItem | null>(null)
-  const copy = useCallback(() => {
-    const text = stageApi.snapshot(96)
-    if (text) setExported({ kind: 'text', text })
-  }, [])
-  const png = useCallback(() => setExported({ kind: 'png', url: stageApi.png() }), [])
+  const reroll = useCallback(() => {
+    setSeed((s) => s + 1)
+    // surprise also changes the glyph set, the way a slot machine changes everything at once
+    if (surprise) setCharset(Object.keys(CHARSETS)[Math.floor(Math.random() * Object.keys(CHARSETS).length)] as CharsetId)
+  }, [surprise])
 
-  // keys: arrows step through the library, space scatters, r rerolls, g changes mode, t theme
+  const caption = `${shape?.title ?? 'gen-ascii'} · ${mode} · ${(density / 1000).toFixed(1)}k · ${charset}`
+  const copy = useCallback(() => {
+    const body = stageApi.snapshot(96)
+    if (!body) return
+    // every line is scanned for accidental words before it can be copied out of the app
+    const safe = body.split('\n').map((l) => scanLine(l, ramps.full)).join('\n')
+    setExported({ kind: 'text', text: `# gen-ascii · ${caption}\n${safe}` })
+  }, [caption, ramps.full])
+  const png = useCallback(() => {
+    const url = stageApi.png()
+    if (!url) return
+    const img = new Image()
+    img.onload = () => {
+      const pad = Math.round(Math.max(22, img.height * 0.045))
+      const cv = document.createElement('canvas')
+      cv.width = img.width; cv.height = img.height + pad
+      const g = cv.getContext('2d')!
+      g.drawImage(img, 0, 0)
+      g.fillStyle = THEMES[theme].bg; g.fillRect(0, img.height, cv.width, pad)
+      g.fillStyle = THEMES[theme].dust
+      g.font = `500 ${Math.round(pad * 0.4)}px "IBM Plex Mono", ui-monospace, monospace`
+      g.textBaseline = 'middle'
+      g.fillText(caption, Math.round(pad * 0.35), img.height + pad / 2)
+      setExported({ kind: 'png', url: cv.toDataURL('image/png') })
+    }
+    img.src = url
+  }, [caption, theme])
+
+  // keys: arrows step through the library, wasd and shift+arrows turn it, space scatters,
+  // r rerolls, g changes mode, t theme
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (exported || e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return
       const at = source.kind === 'library' ? LIBRARY.findIndex((l) => l.id === source.id) : -1
-      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') pickLibrary(LIBRARY[at < 0 ? 0 : (at + (e.key === 'ArrowRight' ? 1 : LIBRARY.length - 1)) % LIBRARY.length].id)
+      const step = (d: number) => pickLibrary(LIBRARY[at < 0 ? 0 : (at + d + LIBRARY.length) % LIBRARY.length].id)
+      if (e.shiftKey) {
+        if (e.key === 'ArrowRight') { e.preventDefault(); stageApi.rotate(0.22, 0) }
+        else if (e.key === 'ArrowLeft') { e.preventDefault(); stageApi.rotate(-0.22, 0) }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); stageApi.rotate(0, -0.22) }
+        else if (e.key === 'ArrowDown') { e.preventDefault(); stageApi.rotate(0, 0.22) }
+        return
+      }
+      if (e.key === 'ArrowRight') step(1)
+      else if (e.key === 'ArrowLeft') step(-1)
       else if (e.key === ' ') { e.preventDefault(); stageApi.burst() }
       else if (e.key === 'r') reroll()
       else if (e.key === 'g') setMode((m) => MODES[(MODES.indexOf(m) + 1) % MODES.length])
       else if (e.key === 't') setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
+      else if (e.key === 'w' || e.key === 'a' || e.key === 's' || e.key === 'd') {
+        const k = e.key
+        stageApi.rotate(k === 'a' ? -0.22 : k === 'd' ? 0.22 : 0, k === 'w' ? -0.22 : k === 's' ? 0.22 : 0)
+      }
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
   }, [source, pickLibrary, reroll, exported])
 
+  // a lost context used to leave a black canvas, and rendering into it throws; the loop is paused
+  // until the browser hands the context back, then the atlas and the geometry are rebuilt
+  const canvasEl = useRef<HTMLCanvasElement | null>(null)
+  const [paused, setPaused] = useState(false)
+  const onCreated = useCallback(({ gl, setFrameloop: stop }: { gl: THREE.WebGLRenderer; setFrameloop: (f: 'always' | 'demand' | 'never') => void }) => {
+    const el = gl.domElement
+    canvasEl.current = el
+    // the canvas is the picture; nothing else on the page says what it is, so the label goes here
+    el.setAttribute('role', 'img')
+    // the loop stops here rather than in an effect, because one more frame into a lost context throws
+    const lost = (ev: Event) => {
+      ev.preventDefault()
+      stop('never')
+      setPaused(true); setBusy(true); setStatus('the graphics context was lost, rebuilding…')
+    }
+    const back = () => { setPaused(false); setStatus(''); setBusy(false); setGen((g) => g + 1) }
+    el.addEventListener('webglcontextlost', lost)
+    el.addEventListener('webglcontextrestored', back)
+  }, [])
+
   const active = (id: string) => source.kind === 'library' && source.id === id
   // 'source' only means something for objects that bring their own colours
   const ink: TintId = tint === 'source' && !shape?.col ? 'ivory' : tint
+  const title = shape ? shape.title : 'gen-ascii'
+
+  useEffect(() => { canvasEl.current?.setAttribute('aria-label', `${title}, drawn in ascii`) }, [title, gen])
 
   return (
     <>
-      <Canvas className="stage" dpr={[1, 2]} flat camera={{ position: [0, 0, 7], fov: 40, near: 0.5, far: 60 }} gl={{ antialias: false, preserveDrawingBuffer: true }}>
-        {atlas && <Stage shape={shape} mode={mode} theme={theme} tint={ink} atlas={atlas} spin={spin} />}
-        {atlas && <Post mode={mode} theme={theme} atlas={atlas} />}
-      </Canvas>
+      <CanvasGuard onError={setError}>
+        <Canvas
+          className={mode === shown ? 'stage' : 'stage fade'} dpr={[1, 2]} flat
+          camera={{ position: [0, 0, 7], fov: 40, near: 0.5, far: 60 }}
+          gl={{ antialias: false, preserveDrawingBuffer: true }} onCreated={onCreated}
+        >
+          {atlas && <Stage key={gen} shape={shape} mode={shown} theme={theme} tint={ink} atlas={atlas} spin={spin} orient={edges} paused={paused} />}
+          {atlas && <Post mode={shown} theme={theme} atlas={atlas} orient={edges} />}
+        </Canvas>
+      </CanvasGuard>
+
+      <Frame />
 
       <header className="top">
         <span className="brand">gen-ascii</span>
@@ -177,6 +289,7 @@ export default function App() {
             <button key={l.id} type="button" className={active(l.id) ? 'on' : ''} onClick={() => pickLibrary(l.id)}>{l.name}</button>
           ))}
           <button type="button" className={source.kind === 'text' ? 'on' : ''} onClick={() => setSource({ kind: 'text', text: text.trim() || 'ascii' })}>text</button>
+          <button type="button" className={source.kind === 'prompt' ? 'on' : ''} onClick={() => setSource({ kind: 'prompt', text: prompt.trim() || 'a lighthouse' })}>prompt</button>
           <button type="button" className={source.kind === 'file' ? 'on' : ''} onClick={() => fileInput.current?.click()}>{source.kind === 'file' ? 'model' : 'open…'}</button>
           <input ref={fileInput} type="file" accept={ACCEPT} multiple hidden onChange={(e) => { openFiles([...(e.target.files ?? [])]); e.target.value = '' }} />
         </nav>
@@ -188,20 +301,29 @@ export default function App() {
         {source.kind === 'text' && (
           <input className="field type" value={text} onChange={(e) => setText(e.target.value)} maxLength={40} placeholder="type a word" spellCheck={false} autoFocus aria-label="Text to render" />
         )}
+        {source.kind === 'prompt' && (
+          <input className="field type" value={prompt} onChange={(e) => setPrompt(e.target.value)} maxLength={60} placeholder="a lighthouse, or an idea" spellCheck={false} autoFocus aria-label="What to draw" />
+        )}
       </header>
 
-      <Hud shape={shape} status={busy ? status || 'sampling surface…' : status || HINT} error={error} />
+      <Hud
+        shape={shape} theme={theme} ramp={ramp} onRetry={() => prepare(source, density, seed).then(setShape).catch((err: Error) => setError(err.message))}
+        status={busy ? status || (source.kind === 'prompt' ? 'working out what that looks like…' : 'sampling surface…') : status || HINT}
+        error={source.kind === 'file' ? maskName(error) : error}
+      />
 
       <Panel
         open={tune} theme={theme}
         charset={charset} setCharset={setCharset} custom={custom} setCustom={setCustom}
         tint={ink} setTint={setTint} hasColor={!!shape?.col}
-        density={draftDensity} setDensity={setDraftDensity}
+        density={draftDensity} setDensity={(n) => { touched.current = true; setDraftDensity(n) }}
         spin={spin} setSpin={setSpin}
+        surprise={surprise} setSurprise={setSurprise} edges={edges} setEdges={setEdges}
         onBurst={() => stageApi.burst()} onReroll={reroll} onText={copy} onPng={png}
       />
 
-      {exported && <Export item={exported} onClose={() => setExported(null)} />}
+      <Coach />
+      {exported && <Export item={exported} onClose={() => setExported(null)} caption={caption} />}
       {dragging && <div className="drop"><span>drop a model<br /><small>glb · gltf · obj · stl · ply · fbx</small></span></div>}
     </>
   )
