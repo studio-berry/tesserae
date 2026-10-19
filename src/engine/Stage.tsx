@@ -1,40 +1,63 @@
 import { useFrame, useThree } from '@react-three/fiber'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import type { Shape } from '../objects'
-import { DUST, Mode, N, R, THEMES, TINTS, Theme, TintId, clamp01, linear, smooth } from './core'
+import { DUST, Mode, N, R, THEMES, TINTS, Theme, TintId, clamp01, mulberry32, smooth } from './core'
 import { Atlas } from './glyphs'
 import { infoStore, stageApi } from './info'
-import { occluderFrag, occluderVert, pointFrag, pointVert } from './shaders'
+import { occluderFrag, occluderVert, pointFrag, pointVert, shadowFrag, shadowVert } from './shaders'
+import { snapshotText } from './snapshot'
 
-type Props = { shape: Shape | null; mode: Mode; theme: Theme; tint: TintId; atlas: Atlas; spin: boolean }
+type Props = {
+  shape: Shape | null
+  mode: Mode
+  theme: Theme
+  tint: TintId
+  atlas: Atlas
+  spin: boolean
+  orient: boolean // direction glyphs along the silhouette
+  paused: boolean // the browser took the graphics context away
+}
 
 // Where every dot is headed. Dots past shape.count are dust.
 type Target = {
   shape: Shape | null
   pos: Float32Array; nrm: Float32Array; col: Float32Array
   size: Float32Array; alpha: Float32Array; order: Float32Array
-  on: Uint8Array // 1 = part of the object
 }
 
 const LIGHT = new THREE.Vector3(-0.5, 0.6, 0.62).normalize() // view space, from the upper left and a little in front
 const SIZE_MUL = { letters: 1, dots: 0.9, grid: 1.9 }
-const rnd = Math.random
+const SHADOW_DOTS = 700
+const TILT = 0.32
 
-function makeTarget(shape: Shape | null, dir: THREE.Vector3): Target {
+// The same curve the vertex shader uses, so a dot caught mid-flight keeps moving smoothly when the
+// target changes under it. See the SPRING block in shaders.ts.
+const springDecay = (t: number) => Math.exp(-3.1 * t) * (Math.cos(1.17914 * t) + 2.62924 * Math.sin(1.17914 * t))
+
+// A stable number per shape, so the same URL builds the same picture
+const hash = (s: string) => {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) }
+  return h >>> 0
+}
+
+const randomDir = (rnd: () => number) => new THREE.Vector3(rnd() - 0.5, rnd() * 1.2 - 0.3, rnd() - 0.5).normalize()
+
+function makeTarget(shape: Shape | null, dir: THREE.Vector3, rnd: () => number): Target {
   const t: Target = {
     shape, pos: DUST.slice(), nrm: new Float32Array(N * 3), col: new Float32Array(N * 3),
-    size: new Float32Array(N), alpha: new Float32Array(N), order: new Float32Array(N), on: new Uint8Array(N),
+    size: new Float32Array(N), alpha: new Float32Array(N), order: new Float32Array(N),
   }
   for (let i = 0; i < N; i++) { t.size[i] = 0.035 + rnd() * 0.04; t.alpha[i] = 0.04 + rnd() * 0.1; t.order[i] = rnd() }
   if (!shape) return t
-  // glyphs sized to the spacing between samples, so they tile the surface
-  const glyph = Math.max(0.03, Math.min(0.16, shape.spacing * 1.15))
+  // one glyph size for every object at this density, so the family reads as one family
+  const glyph = shape.glyphSize
   for (let i = 0; i < shape.count; i++) {
     const i3 = i * 3
     t.pos.set(shape.pos.subarray(i3, i3 + 3), i3)
     t.nrm.set(shape.nrm.subarray(i3, i3 + 3), i3)
-    t.size[i] = glyph; t.on[i] = 1
+    t.size[i] = glyph
     // release in a sweep across the object, so it assembles like a scan
     const d = (shape.pos[i3] * dir.x + shape.pos[i3 + 1] * dir.y + shape.pos[i3 + 2] * dir.z) / R
     t.order[i] = clamp01((d + 1) / 2 * 0.9 + rnd() * 0.1)
@@ -44,11 +67,14 @@ function makeTarget(shape: Shape | null, dir: THREE.Vector3): Target {
 
 // Colours and base brightness, which depend on theme and tint but not on where dots are
 function paint(t: Target, theme: Theme, tint: TintId) {
-  const dust = linear(THEMES[theme].dust), ink = linear(TINTS.find((x) => x.id === tint)?.[theme] ?? TINTS[0][theme])
+  const dust = new THREE.Color(THEMES[theme].dust), ink = new THREE.Color(TINTS.find((x) => x.id === tint)?.[theme] ?? TINTS[0][theme])
   const src = tint === 'source' ? t.shape?.col : null, light = theme === 'light'
   for (let i = 0; i < N; i++) {
     const i3 = i * 3
-    if (!t.on[i]) { t.col[i3] = dust.r; t.col[i3 + 1] = dust.g; t.col[i3 + 2] = dust.b; continue }
+    if (t.nrm[i3] === 0 && t.nrm[i3 + 1] === 0 && t.nrm[i3 + 2] === 0) {
+      t.col[i3] = dust.r; t.col[i3 + 1] = dust.g; t.col[i3 + 2] = dust.b
+      continue
+    }
     t.alpha[i] = 0.95
     if (!src) { t.col[i3] = ink.r; t.col[i3 + 1] = ink.g; t.col[i3 + 2] = ink.b; continue }
     let r = src[i3], g = src[i3 + 1], b = src[i3 + 2]
@@ -68,19 +94,27 @@ function paint(t: Target, theme: Theme, tint: TintId) {
   }
 }
 
-const randomDir = () => new THREE.Vector3(rnd() - 0.5, rnd() * 1.2 - 0.3, rnd() - 0.5).normalize()
+const yawOf = (q: THREE.Quaternion) => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z))
+const FACE = new THREE.Quaternion(), FACE_E = new THREE.Euler()
+const Y = new THREE.Vector3(), Q = new THREE.Quaternion(), W = new THREE.Vector3(), X = new THREE.Vector3()
 
-export function Stage({ shape, mode, theme, tint, atlas, spin }: Props) {
-  const { size, viewport, camera, gl, scene } = useThree()
+export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }: Props) {
+  const { size, viewport, camera, gl, scene, invalidate, setDpr, setFrameloop } = useThree()
   const group = useRef<THREE.Group>(null!)
+  const squash = useRef<THREE.Group>(null!)
   const occ = useRef<THREE.Mesh>(null!)
+  const ground = useRef<THREE.Points>(null!)
+  const [still, setStill] = useState(false)
+  const reduce = useMemo(() => matchMedia('(prefers-reduced-motion: reduce)').matches, [])
 
   const geo = useMemo(() => {
     const g = new THREE.BufferGeometry()
     const dyn = (n: number) => new THREE.BufferAttribute(new Float32Array(N * n), n).setUsage(THREE.DynamicDrawUsage)
-    g.setAttribute('position', dyn(3)); g.setAttribute('aNormal', dyn(3)); g.setAttribute('aColor', dyn(3))
-    g.setAttribute('aSize', dyn(1)); g.setAttribute('aAlpha', dyn(1))
-    g.setAttribute('aSeed', new THREE.BufferAttribute(Float32Array.from({ length: N }, () => rnd()), 1))
+    for (const k of ['position', 'aNormal', 'aColor', 'aFrom', 'aPrevNormal', 'aPrevColor']) g.setAttribute(k, dyn(3))
+    for (const k of ['aSize', 'aAlpha', 'aPrevSize', 'aPrevAlpha', 'aRel', 'aOrder']) g.setAttribute(k, dyn(1))
+    const rnd = mulberry32(7), seed = new Float32Array(N)
+    for (let i = 0; i < N; i++) seed[i] = rnd()
+    g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1))
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 40)
     return g
   }, [])
@@ -88,9 +122,15 @@ export function Stage({ shape, mode, theme, tint, atlas, spin }: Props) {
   const mat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: pointVert, fragmentShader: pointFrag, transparent: true, depthWrite: false,
     uniforms: {
-      uScale: { value: 1 }, uLightDir: { value: LIGHT }, uShade: { value: 1 }, uBackFade: { value: 1 }, uTwoSided: { value: 0 },
-      uSizeMul: { value: 1 }, uLight: { value: 0 }, uMode: { value: 0 }, uTime: { value: 0 },
-      uCount: { value: 1 }, uJitter: { value: 0 }, uAtlas: { value: null }, uGlint: { value: new THREE.Color() },
+      uScale: { value: 1 }, uLightDir: { value: LIGHT.clone() }, uShade: { value: 1 }, uBackFade: { value: 1 }, uTwoSided: { value: 0 },
+      uSizeMul: { value: 1 }, uLight: { value: 0 }, uMode: { value: 0 }, uTime: { value: 0 }, uEnter: { value: 0 }, uPhase: { value: 0 },
+      uCount: { value: 1 }, uJitter: { value: 0 }, uCols: { value: 1 }, uRows: { value: 1 },
+      uOrient: { value: 0 }, uOrientCount: { value: 4 }, uOrientBase: { value: 0 }, uEdge: { value: 0.22 },
+      uAtlas: { value: null }, uGlint: { value: new THREE.Color() },
+      uScan: { value: new THREE.Vector4(0, 1, 0, -1) },
+      uRipples: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+      uRipple: { value: 0 }, uPop: { value: new THREE.Vector4(0, 0, 0, -1) },
+      uGrab: { value: new THREE.Vector4(0, 0, 0, 0) }, uGrabMode: { value: 0 },
     },
   }), [])
 
@@ -99,11 +139,42 @@ export function Stage({ shape, mode, theme, tint, atlas, spin }: Props) {
     uniforms: { uPush: { value: 0.025 } },
   }), [])
 
+  // the ground: a soft pool of the faintest glyphs, so the object sits somewhere instead of floating
+  const shadowGeo = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    const pos = new Float32Array(SHADOW_DOTS * 3), ink = new Float32Array(SHADOW_DOTS), seed = new Float32Array(SHADOW_DOTS)
+    const rnd = mulberry32(11)
+    for (let i = 0; i < SHADOW_DOTS; i++) {
+      const t = Math.sqrt(rnd()) * 2 - 1, a = rnd() * Math.PI * 2, rr = Math.sqrt(Math.max(0, 1 - t * t))
+      pos[i * 3] = rr * Math.cos(a); pos[i * 3 + 1] = 0; pos[i * 3 + 2] = rr * Math.sin(a)
+      ink[i] = Math.min(1, (1 - Math.abs(t)) ** 1.6 * 0.9 + 0.1)
+      seed[i] = rnd()
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    g.setAttribute('aInk', new THREE.BufferAttribute(ink, 1))
+    g.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1))
+    return g
+  }, [])
+
+  const shadowMat = useMemo(() => new THREE.ShaderMaterial({
+    vertexShader: shadowVert, fragmentShader: shadowFrag, transparent: true, depthWrite: false,
+    uniforms: {
+      uTime: { value: 0 }, uScale: { value: 1 }, uCount: { value: 1 }, uCols: { value: 1 }, uRows: { value: 1 },
+      uAtlas: { value: null }, uColor: { value: new THREE.Color() },
+    },
+  }), [])
+
   useEffect(() => {
-    mat.uniforms.uAtlas.value = atlas.tex
-    mat.uniforms.uCount.value = atlas.count
+    for (const m of [mat, shadowMat]) {
+      m.uniforms.uAtlas.value = atlas.tex
+      m.uniforms.uCount.value = atlas.count
+      m.uniforms.uCols.value = atlas.cols
+      m.uniforms.uRows.value = atlas.rows
+    }
     mat.uniforms.uJitter.value = atlas.jitter
-  }, [atlas, mat])
+    mat.uniforms.uOrientCount.value = atlas.orient.count
+    mat.uniforms.uOrientBase.value = atlas.orient.base
+  }, [atlas, mat, shadowMat])
 
   useEffect(() => {
     const light = theme === 'light'
@@ -111,81 +182,169 @@ export function Stage({ shape, mode, theme, tint, atlas, spin }: Props) {
     mat.uniforms.uMode.value = mode === 'letters' ? 0 : mode === 'dots' ? 1 : 2
     mat.uniforms.uSizeMul.value = SIZE_MUL[mode]
     mat.uniforms.uGlint.value.set(THEMES[theme].lit)
+    shadowMat.uniforms.uColor.value.set(THEMES[theme].dust)
     // the grid effect reads an opaque splat image; the other modes blend glyphs or dots
     mat.transparent = mode !== 'grid'
     mat.depthWrite = mode === 'grid'
     mat.blending = mode === 'grid' ? THREE.NoBlending : mode === 'dots' && !light ? THREE.AdditiveBlending : THREE.NormalBlending
     mat.needsUpdate = true
     scene.background = mode === 'grid' ? null : new THREE.Color(THEMES[theme].bg)
-  }, [mode, theme, mat, scene])
-
-  const litColor = useMemo(() => linear(THEMES[theme].lit), [theme])
+  }, [mode, theme, mat, scene, shadowMat])
 
   // engine state lives in a ref so React never re-renders per frame
   const E = useRef({
-    P: Float32Array.from(DUST), V: new Float32Array(N * 3), Nn: new Float32Array(N * 3),
-    col: new Float32Array(N * 3), sz: new Float32Array(N), al: new Float32Array(N),
-    cur: null as Target | null, prev: null as Target | null, rel: new Float32Array(N),
-    seed: Float32Array.from({ length: N * 2 }, () => rnd() * 6.283),
-    time: 0, phase: 'idle' as 'assemble' | 'idle' | 'burst', start: 0, len: 0, lastInfo: 0,
+    cur: null as Target | null, phase: 'idle' as 'assemble' | 'idle' | 'burst', start: 0, len: 0,
+    time: 0, lastInfo: 0, lastFrame: 0, frameMs: 0.016,
     scanNext: 7, scanStart: -99, scanDir: new THREE.Vector3(0, 1, 0),
-    ripples: [] as { c: [number, number, number]; t: number }[],
-    rx: 0.32, ry: -0.6, vx: 0, vy: 0, zoom: 1, fit: 0.8, drag: false, lastTouch: -99, occ: 0,
+    ripples: [] as { c: THREE.Vector3; t: number }[],
+    q: new THREE.Quaternion().setFromEuler(new THREE.Euler(TILT, -0.6, 0, 'XYZ')),
+    w: new THREE.Vector3(), drag: false, lastTouch: -99, zoom: 1, fit: 0.8, occ: 0, moving: false,
+    grab: { point: new THREE.Vector3(), held: 0, mode: 0 },
+    squash: 0, squashDir: new THREE.Vector2(1, 0),
   })
 
-  const enter = (next: Shape | null, burst = false) => {
-    const e = E.current, now = e.time
-    // freeze each dot's effective target, so dots still waiting on the last change keep moving smoothly
-    if (e.cur) {
-      const c = e.cur, p = e.prev ?? c
-      const frozen: Target = { ...c, pos: c.pos.slice(), nrm: c.nrm.slice(), col: c.col.slice(), size: c.size.slice(), alpha: c.alpha.slice(), on: c.on.slice() }
-      for (let i = 0; i < N; i++) if (now < e.rel[i]) {
-        const i3 = i * 3
-        frozen.pos.set(p.pos.subarray(i3, i3 + 3), i3); frozen.nrm.set(p.nrm.subarray(i3, i3 + 3), i3); frozen.col.set(p.col.subarray(i3, i3 + 3), i3)
-        frozen.size[i] = p.size[i]; frozen.alpha[i] = p.alpha[i]; frozen.on[i] = p.on[i]
+  // Takes on a new set of targets without moving anything by hand: what each dot is doing right now
+  // is frozen into aFrom and the aPrev* attributes, and the vertex shader animates from there. This
+  // runs when the target changes, never per frame.
+  const commit = (next: Target, stagger: number) => {
+    const e = E.current, t0 = e.time, A = geo.attributes
+    const pos = A.position.array as Float32Array, nrm = A.aNormal.array as Float32Array, col = A.aColor.array as Float32Array
+    const sz = A.aSize.array as Float32Array, al = A.aAlpha.array as Float32Array
+    const from = A.aFrom.array as Float32Array, pn = A.aPrevNormal.array as Float32Array, pc = A.aPrevColor.array as Float32Array
+    const ps = A.aPrevSize.array as Float32Array, pa = A.aPrevAlpha.array as Float32Array
+    const rel = A.aRel.array as Float32Array, ord = A.aOrder.array as Float32Array
+    for (let i = 0; i < N; i++) {
+      const i3 = i * 3
+      const tau = Math.max(0, t0 - rel[i]), d = springDecay(tau), kn = Math.exp(-7 * tau), kc = Math.exp(-5 * tau)
+      for (let c = 0; c < 3; c++) {
+        from[i3 + c] = pos[i3 + c] + (from[i3 + c] - pos[i3 + c]) * d
+        pn[i3 + c] = nrm[i3 + c] + (pn[i3 + c] - nrm[i3 + c]) * kn
+        pc[i3 + c] = col[i3 + c] + (pc[i3 + c] - col[i3 + c]) * kc
+        pos[i3 + c] = next.pos[i3 + c]
+        nrm[i3 + c] = next.nrm[i3 + c]
+        col[i3 + c] = next.col[i3 + c]
       }
-      e.prev = frozen
+      ps[i] = sz[i] + (ps[i] - sz[i]) * kc
+      pa[i] = al[i] + (pa[i] - al[i]) * kc
+      sz[i] = next.size[i]; al[i] = next.alpha[i]
+      ord[i] = next.order[i]
+      rel[i] = t0 + next.order[i] * stagger
     }
-    e.cur = makeTarget(next, randomDir())
-    paint(e.cur, theme, tint)
-    if (!e.prev) e.prev = e.cur
-    const stagger = burst ? 0.5 : e.phase === 'idle' && e.time > 0.5 ? 1.1 : 1.7
-    for (let i = 0; i < N; i++) e.rel[i] = now + e.cur.order[i] * stagger
-    e.phase = burst ? 'burst' : 'assemble'; e.start = now; e.len = stagger + (burst ? 2.2 : 1.2)
+    for (const k in A) if (k !== 'aSeed') A[k].needsUpdate = true
+    e.cur = next
+  }
+
+  const enter = (nextShape: Shape | null, burst = false) => {
+    const e = E.current
+    const rnd = mulberry32(hash(nextShape?.key ?? 'dust'))
+    const target = makeTarget(nextShape, randomDir(rnd), rnd)
+    paint(target, theme, tint)
+    const scatter = burst && !reduce
+    const stagger = scatter ? 0.5 : e.phase === 'idle' && e.time > 0.5 ? 1.1 : 1.7
+    commit(target, stagger)
+    e.phase = scatter ? 'burst' : 'assemble'; e.start = e.time; e.len = stagger + (scatter ? 2.2 : 1.2)
     e.occ = 0
-    if (occ.current) occ.current.geometry = next?.occluder ?? new THREE.BufferGeometry()
+    if (occ.current) occ.current.geometry = nextShape?.occluder ?? new THREE.BufferGeometry()
+    invalidate()
   }
 
   useEffect(() => { enter(shape) }, [shape]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const e = E.current
-    if (e.cur) paint(e.cur, theme, tint)
-    if (e.prev && e.prev !== e.cur) paint(e.prev, theme, tint)
-  }, [theme, tint])
+    if (!e.cur) return
+    paint(e.cur, theme, tint)
+    commit(e.cur, 0)
+  }, [theme, tint]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // shared by tap-to-ripple and the text snapshot: the current model-view transform
   const views = () => {
     const g = group.current
     g.updateMatrixWorld(); camera.updateMatrixWorld()
-    const mv = new THREE.Matrix4().multiplyMatrices(camera.matrixWorldInverse, g.matrixWorld)
-    return { mv, nm: new THREE.Matrix3().getNormalMatrix(mv) }
+    return new THREE.Matrix4().multiplyMatrices(camera.matrixWorldInverse, g.matrixWorld)
   }
 
-  // ---------------------------------------------------------------- pointer: drag to turn, pinch or wheel to zoom, tap to ripple
+  // ---------------------------------------------------------------- pointer: drag to turn, pinch or wheel to zoom, tap to react
   useEffect(() => {
     const el = gl.domElement, pts = new Map<number, { x: number; y: number }>()
-    let down = { x: 0, y: 0, t: 0, moved: 0 }, pinch = 0, lastMove = 0
+    const rc = new THREE.Raycaster()
     const e = E.current
+    // a trackball turns about the axis across the drag, so any direction works and nothing clamps
+    const turn = new THREE.Quaternion()
+    const axis = new THREE.Vector3(), ndc = new THREE.Vector2(), at = new THREE.Vector3()
+    let down = { x: 0, y: 0, t: 0, moved: 0 }, pinch = 0, lastMove = 0, lastTap = -99, hold: number | undefined
+
+    // the occluder gives an exact surface point, which beats scanning every projected dot for the
+    // nearest one, and it is already in the depth buffer so it can never pick a hidden dot
+    const hit = (cx: number, cy: number) => {
+      const o = occ.current
+      if (!o?.geometry.attributes.position || !o.visible) return null
+      const rect = el.getBoundingClientRect()
+      ndc.set(((cx - rect.left) / rect.width) * 2 - 1, -((cy - rect.top) / rect.height) * 2 + 1)
+      rc.setFromCamera(ndc, camera)
+      const h = rc.intersectObject(o, false)[0]
+      return h ? group.current.worldToLocal(h.point.clone()) : null
+    }
+    const onRay = (cx: number, cy: number) => {
+      const rect = el.getBoundingClientRect()
+      ndc.set(((cx - rect.left) / rect.width) * 2 - 1, -((cy - rect.top) / rect.height) * 2 + 1)
+      const far = new THREE.Vector3(ndc.x, ndc.y, 0.5).unproject(camera)
+      const dir = far.sub(camera.position).normalize()
+      const dist = camera.position.distanceTo(group.current.getWorldPosition(at))
+      return group.current.worldToLocal(new THREE.Vector3().copy(camera.position).addScaledVector(dir, dist))
+    }
+    const rippleAt = (p: THREE.Vector3) => {
+      e.ripples.push({ c: p.clone(), t: e.time })
+      if (e.ripples.length > 4) e.ripples.shift()
+    }
+    const tap = (cx: number, cy: number) => {
+      const rect = el.getBoundingClientRect(), x = cx - rect.left, y = cy - rect.top
+      const dx = x - rect.width / 2, dy = y - rect.height / 2, len = Math.hypot(dx, dy) || 1
+      if (navigator.vibrate) navigator.vibrate(10)
+      const surface = hit(cx, cy)
+      if (surface) {
+        rippleAt(surface)
+        // tapping off centre turns the object, the way flicking it at the edge would
+        e.w.addScaledVector(axis.set(dy / len, -dx / len, 0), 0.9 * Math.min(1, len / (rect.height * 0.4)))
+        // a second tap in the same place bursts the glyphs around the point
+        if (e.time - lastTap < 0.32) mat.uniforms.uPop.value.set(surface.x, surface.y, surface.z, e.time)
+        lastTap = e.time
+      } else {
+        rippleAt(onRay(cx, cy))
+        // a tap on the dust nudges the whole object rather than leaving it silent
+        if (!reduce) e.w.addScaledVector(axis.set(dy > 0 ? 0.4 : -0.4, x > rect.width / 2 ? -0.3 : 0.3, 0), 0.2)
+      }
+    }
+
     const onDown = (ev: PointerEvent) => {
       el.setPointerCapture(ev.pointerId)
       pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY })
-      if (pts.size === 1) { down = { x: ev.clientX, y: ev.clientY, t: performance.now(), moved: 0 }; e.drag = true; e.vx = e.vy = 0 }
+      if (pts.size === 1) {
+        down = { x: ev.clientX, y: ev.clientY, t: performance.now(), moved: 0 }
+        e.drag = true; e.w.set(0, 0, 0)
+        const rect = el.getBoundingClientRect()
+        const dx = ev.clientX - rect.left - rect.width / 2, dy = ev.clientY - rect.top - rect.height / 2
+        const l = Math.hypot(dx, dy) || 1
+        e.squashDir.set(Math.abs(dx) / l, Math.abs(dy) / l)
+        const p = hit(ev.clientX, ev.clientY)
+        e.grab.held = p ? 1 : 0; e.grab.mode = p ? 1 : 0
+        if (p) e.grab.point.copy(p)
+        window.clearTimeout(hold)
+        if (!reduce && p) hold = window.setTimeout(() => { if (e.drag) e.grab.mode = 2 }, 480)
+      }
       if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y) }
       e.lastTouch = e.time
+      invalidate()
     }
     const onMove = (ev: PointerEvent) => {
       const p = pts.get(ev.pointerId)
-      if (!p) return
+      if (!p) {
+        // hover: the light leans a little toward the pointer
+        const rect = el.getBoundingClientRect()
+        const hx = ((ev.clientX - rect.left) / rect.width - 0.5) * 2, hy = ((ev.clientY - rect.top) / rect.height - 0.5) * 2
+        mat.uniforms.uLightDir.value.copy(LIGHT).applyAxisAngle(Y, hx * 0.22).applyAxisAngle(X, -hy * 0.22)
+        invalidate()
+        return
+      }
       const dx = ev.clientX - p.x, dy = ev.clientY - p.y, now = performance.now(), dt = Math.max(1, now - lastMove) / 1000
       p.x = ev.clientX; p.y = ev.clientY; lastMove = now
       if (pts.size === 2) {
@@ -193,118 +352,69 @@ export function Stage({ shape, mode, theme, tint, atlas, spin }: Props) {
         if (pinch > 0) e.zoom = Math.max(0.5, Math.min(2.6, e.zoom * (d / pinch)))
         pinch = d; down.moved = 99
       } else {
-        const k = 0.0065
-        e.ry += dx * k; e.rx += dy * k
-        e.vy = (dx * k) / dt; e.vx = (dy * k) / dt
+        const k = 0.0065, len = Math.hypot(dx, dy)
+        if (len > 0) {
+          axis.set(dy / len, dx / len, 0).normalize()
+          e.q.premultiply(turn.setFromAxisAngle(axis, len * k))
+          e.w.copy(axis).multiplyScalar((len * k) / dt)
+        }
         down.moved += Math.abs(dx) + Math.abs(dy)
       }
       e.lastTouch = e.time
+      invalidate()
     }
     const onUp = (ev: PointerEvent) => {
       pts.delete(ev.pointerId)
       if (pts.size < 2) pinch = 0
       if (pts.size === 0) {
         e.drag = false
-        if (performance.now() - lastMove > 80) e.vx = e.vy = 0 // held still before letting go: no fling
+        window.clearTimeout(hold)
+        e.grab.held = 0; e.grab.mode = 0
+        if (performance.now() - lastMove > 80) e.w.set(0, 0, 0) // held still before letting go: no fling
         if (down.moved < 8 && performance.now() - down.t < 400) tap(ev.clientX, ev.clientY)
+        invalidate()
       }
     }
-    const onWheel = (ev: WheelEvent) => { ev.preventDefault(); e.zoom = Math.max(0.5, Math.min(2.6, e.zoom * Math.exp(-ev.deltaY * 0.0012))) }
-    // a ripple starts at the front-most glyph under the finger
-    const tap = (cx: number, cy: number) => {
-      const t = e.cur
-      if (!t?.shape) return
-      const rect = el.getBoundingClientRect(), x = cx - rect.left, y = cy - rect.top
-      const { mv } = views(), pos = geo.attributes.position.array as Float32Array, v = new THREE.Vector3()
-      let best = -1, bestZ = Infinity
-      for (let i = 0; i < t.shape.count; i++) {
-        v.fromArray(pos, i * 3).applyMatrix4(mv)
-        const z = -v.z
-        v.applyMatrix4(camera.projectionMatrix)
-        const sx = (v.x * 0.5 + 0.5) * rect.width, sy = (0.5 - v.y * 0.5) * rect.height
-        if ((sx - x) ** 2 + (sy - y) ** 2 < 28 * 28 && z < bestZ) { bestZ = z; best = i }
-      }
-      if (best < 0) return
-      e.ripples.push({ c: [t.pos[best * 3], t.pos[best * 3 + 1], t.pos[best * 3 + 2]], t: e.time })
-      if (e.ripples.length > 4) e.ripples.shift()
-    }
+    const onLeave = () => { if (!pts.size) mat.uniforms.uLightDir.value.copy(LIGHT) }
+    const onWheel = (ev: WheelEvent) => { ev.preventDefault(); e.zoom = Math.max(0.5, Math.min(2.6, e.zoom * Math.exp(-ev.deltaY * 0.0012))); invalidate() }
     el.addEventListener('pointerdown', onDown); el.addEventListener('pointermove', onMove)
     el.addEventListener('pointerup', onUp); el.addEventListener('pointercancel', onUp)
+    el.addEventListener('pointerleave', onLeave)
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => {
+      window.clearTimeout(hold)
       el.removeEventListener('pointerdown', onDown); el.removeEventListener('pointermove', onMove)
       el.removeEventListener('pointerup', onUp); el.removeEventListener('pointercancel', onUp)
-      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('pointerleave', onLeave); el.removeEventListener('wheel', onWheel)
     }
-  }, [gl, camera, geo]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [gl, camera, mat, reduce, invalidate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------- imperative hooks for the UI
   useEffect(() => {
     stageApi.burst = () => { const e = E.current; if (e.cur?.shape) enter(e.cur.shape, true) }
+    stageApi.rotate = (dx, dy) => {
+      const e = E.current
+      const len = Math.hypot(dx, dy)
+      if (!len) return
+      e.q.premultiply(Q.setFromAxisAngle(W.set(dy / len, dx / len, 0).normalize(), len))
+      e.lastTouch = e.time
+      invalidate()
+    }
     stageApi.png = () => gl.domElement.toDataURL('image/png')
-    stageApi.snapshot = (cols = 96) => snapshot(cols)
+    stageApi.snapshot = (cols = 96) => {
+      const e = E.current
+      if (!e.cur?.shape) return ''
+      return snapshotText({
+        pos: geo.attributes.position.array as Float32Array,
+        nrm: geo.attributes.aNormal.array as Float32Array,
+        size: geo.attributes.aSize.array as Float32Array,
+        alpha: geo.attributes.aAlpha.array as Float32Array,
+        mv: views(), projection: camera.projectionMatrix, width: size.width, height: size.height,
+        twoSided: e.cur.shape.twoSided, sizeMul: SIZE_MUL.grid, light: LIGHT,
+        ramp: atlas.ranked, cols,
+      })
+    }
   })
-
-  // Renders the current view as plain text: project the visible dots, crop to the object, splat
-  // them into a fine depth buffer, then give each character cell the glyph its average ink calls for
-  const snapshot = (cols: number) => {
-    const e = E.current, t = e.cur
-    if (!t?.shape) return ''
-    const { mv, nm } = views()
-    const W = size.width, H = size.height
-    const pos = geo.attributes.position.array as Float32Array, v = new THREE.Vector3(), n = new THREE.Vector3(), h = new THREE.Vector3(), view = new THREE.Vector3()
-    const persp = camera as THREE.PerspectiveCamera, focal = H / (2 * Math.tan((persp.fov * Math.PI) / 360))
-    const twoSided = t.shape.twoSided
-    const dots: { x: number; y: number; z: number; ink: number; r: number }[] = []
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
-    for (let i = 0; i < N; i++) {
-      if (!t.on[i]) continue
-      v.fromArray(pos, i * 3).applyMatrix4(mv)
-      const z = -v.z
-      if (z <= 0.1) continue
-      n.fromArray(e.Nn, i * 3).applyMatrix3(nm).normalize()
-      view.copy(v).negate().normalize()
-      let facing = n.dot(view)
-      if (twoSided && facing < 0) { n.negate(); facing = -facing }
-      if (!twoSided && facing < -0.05) continue
-      const lam = Math.max(0, n.dot(LIGHT)), spec = Math.max(0, n.dot(h.copy(LIGHT).add(view).normalize())) ** 24
-      const graze = 0.5 + 0.5 * smooth(facing / 0.45)
-      const ink = clamp01(e.al[i] * (0.16 + 0.84 * lam + 0.55 * spec + 0.06 * (1 - clamp01(facing)) ** 3) * graze * 0.72)
-      v.applyMatrix4(camera.projectionMatrix)
-      const x = (v.x * 0.5 + 0.5) * W, y = (0.5 - v.y * 0.5) * H, r = (e.sz[i] * SIZE_MUL.grid * focal) / z / 2
-      dots.push({ x, y, z, ink, r })
-      x0 = Math.min(x0, x - r); x1 = Math.max(x1, x + r); y0 = Math.min(y0, y - r); y1 = Math.max(y1, y + r)
-    }
-    if (!dots.length) return ''
-    // character cells are twice as tall as wide; the columns span the object, not the screen
-    const cw = (x1 - x0) / cols, ch = cw * 2, rows = Math.max(1, Math.ceil((y1 - y0) / ch))
-    const SX = 3, SY = 6, gw = cols * SX, gh = rows * SY, sub = cw / SX
-    const zb = new Float32Array(gw * gh).fill(Infinity), ib = new Float32Array(gw * gh)
-    for (const d of dots) {
-      const sx = (d.x - x0) / sub, sy = (d.y - y0) / sub, rad = Math.max(0.6, d.r / sub)
-      for (let gy = Math.max(0, Math.floor(sy - rad)); gy <= Math.min(gh - 1, Math.ceil(sy + rad)); gy++)
-        for (let gx = Math.max(0, Math.floor(sx - rad)); gx <= Math.min(gw - 1, Math.ceil(sx + rad)); gx++) {
-          if ((gx + 0.5 - sx) ** 2 + (gy + 0.5 - sy) ** 2 > rad * rad) continue
-          const k = gy * gw + gx
-          if (d.z < zb[k]) { zb[k] = d.z; ib[k] = d.ink }
-        }
-    }
-    const ramp = atlas.ranked, lines: string[] = []
-    for (let r = 0; r < rows; r++) {
-      let line = ''
-      for (let c = 0; c < cols; c++) {
-        let sum = 0
-        for (let y = 0; y < SY; y++) for (let x = 0; x < SX; x++) sum += ib[(r * SY + y) * gw + c * SX + x]
-        const ink = sum / (SX * SY)
-        line += ink < 0.05 ? ' ' : ramp[Math.min(ramp.length - 1, Math.floor(ink ** 0.8 * ramp.length))]
-      }
-      lines.push(line.replace(/\s+$/, ''))
-    }
-    while (lines.length && !lines[0]) lines.shift()
-    while (lines.length && !lines[lines.length - 1]) lines.pop()
-    const indent = Math.min(...lines.filter(Boolean).map((l) => l.match(/^ */)![0].length))
-    return lines.map((l) => l.slice(indent)).join('\n')
-  }
 
   // ---------------------------------------------------------------- the frame loop
   useFrame((_, rawDt) => {
@@ -312,90 +422,54 @@ export function Stage({ shape, mode, theme, tint, atlas, spin }: Props) {
     e.time += dt
     const now = e.time, cur = e.cur
     if (!cur) return
-    const prev = e.prev ?? cur, shp = cur.shape
+    const shp = cur.shape
     const tPh = now - e.start
     if (e.phase !== 'idle' && tPh > e.len) e.phase = 'idle'
     // every so often a bright band sweeps across the object, the way ivory's crest crosses its scenes
-    if (e.phase === 'idle' && now > e.scanNext && shp) { e.scanStart = now; e.scanDir = randomDir(); e.scanNext = now + 9 + rnd() * 7 }
-    const scan = (now - e.scanStart) / 2.6
+    if (e.phase === 'idle' && shp && now > e.scanNext) {
+      const rnd = mulberry32(hash(`${shp.key}:${Math.floor(now)}`))
+      e.scanStart = now; e.scanDir.copy(randomDir(rnd)); e.scanNext = now + 9 + rnd() * 7
+    }
+    const scanOn = now - e.scanStart <= 2.6
     e.ripples = e.ripples.filter((r) => now - r.t < 3.5)
 
-    const pos = geo.attributes.position.array as Float32Array
-    const nrmA = geo.attributes.aNormal.array as Float32Array
-    const colA = geo.attributes.aColor.array as Float32Array
-    const szA = geo.attributes.aSize.array as Float32Array
-    const alA = geo.attributes.aAlpha.array as Float32Array
-    const lit = litColor
-    const K = 11, DAMP = 6.2 // soft spring: dots visibly travel (~1 s) and settle with a hint of overshoot
-    const kc = 1 - Math.exp(-dt * 5), kn = 1 - Math.exp(-dt * 7)
-    const { P, V, Nn, seed, rel } = e
-    const sd = e.scanDir, burst = e.phase === 'burst'
-    for (let i = 0; i < N; i++) {
-      const on = now >= rel[i], T = on ? cur : prev, i3 = i * 3, inShape = T.on[i] === 1
-      let ox = 0, oy = 0, oz = 0, b = 1, glow = 0
-      if (inShape && on) {
-        const px = T.pos[i3], py = T.pos[i3 + 1], pz = T.pos[i3 + 2], nx = T.nrm[i3], ny = T.nrm[i3 + 1], nz = T.nrm[i3 + 2]
-        if (e.phase === 'assemble') { const age = (now - rel[i]) / 0.9; if (age < 1) { glow = 1 - age; b += glow * 1.2 } }
-        if (scan >= 0 && scan <= 1) {
-          const d = (px * sd.x + py * sd.y + pz * sd.z) / R, w = 1 - Math.abs(d - (-1.25 + scan * 2.5)) / 0.14
-          if (w > 0) { glow = Math.max(glow, w); b += w * 1.3 }
-        }
-        for (const r of e.ripples) {
-          const age = now - r.t, dist = Math.hypot(px - r.c[0], py - r.c[1], pz - r.c[2])
-          const k = Math.exp(-(((dist - age * 1.6) / 0.16) ** 2)) * Math.exp(-age * 1.1)
-          if (k > 0.01) { const a = k * 0.17; ox += nx * a; oy += ny * a; oz += nz * a; b += k * 1.6; glow = Math.max(glow, k) }
-        }
-        if (burst) {
-          // blow outward along the surface normal and come back together
-          const u = clamp01((tPh - T.order[i] * 0.5) / 2.2), amt = (u < 0.22 ? 1 - (1 - u / 0.22) ** 3 : 1 - smooth((u - 0.22) / 0.78)) * (0.35 + seed[i * 2] * 0.25)
-          ox += (nx * 0.8 + px * 0.3) * amt; oy += (ny * 0.8 + py * 0.3) * amt; oz += (nz * 0.8 + pz * 0.3) * amt
-          glow = Math.max(glow, amt * 0.6)
-        }
-      }
-      for (let a = 0; a < 3; a++) {
-        V[i3 + a] += ((T.pos[i3 + a] - P[i3 + a]) * K - V[i3 + a] * DAMP) * dt
-        P[i3 + a] += V[i3 + a] * dt
-        Nn[i3 + a] += (T.nrm[i3 + a] - Nn[i3 + a]) * kn
-      }
-      const s1 = seed[i * 2], s2 = seed[i * 2 + 1], jit = inShape ? 0.003 : 0.06
-      pos[i3] = P[i3] + ox + Math.sin(now * 0.7 + s1) * jit
-      pos[i3 + 1] = P[i3 + 1] + oy + Math.cos(now * 0.6 + s2) * jit
-      pos[i3 + 2] = P[i3 + 2] + oz + Math.sin(now * 0.5 + s1 + s2) * jit
-      nrmA[i3] = Nn[i3]; nrmA[i3 + 1] = Nn[i3 + 1]; nrmA[i3 + 2] = Nn[i3 + 2]
-      const gk = glow * 0.85
-      colA[i3] = e.col[i3] += (T.col[i3] + (lit.r - T.col[i3]) * gk - e.col[i3]) * kc
-      colA[i3 + 1] = e.col[i3 + 1] += (T.col[i3 + 1] + (lit.g - T.col[i3 + 1]) * gk - e.col[i3 + 1]) * kc
-      colA[i3 + 2] = e.col[i3 + 2] += (T.col[i3 + 2] + (lit.b - T.col[i3 + 2]) * gk - e.col[i3 + 2]) * kc
-      szA[i] = e.sz[i] += (T.size[i] * (1 + glow * 0.25) - e.sz[i]) * kc
-      alA[i] = e.al[i] += (Math.min(1.6, T.alpha[i] * b) - e.al[i]) * kc
-    }
-    for (const k of ['position', 'aNormal', 'aColor', 'aSize', 'aAlpha']) geo.attributes[k].needsUpdate = true
-
-    // turntable: drag turns it, a fling coasts, and the slow spin picks up again once left alone
+    // dragging turns it, a fling coasts, and the slow spin picks up again once it is left alone
     if (!e.drag) {
-      const decay = Math.exp(-dt * 2.4)
-      e.vx *= decay; e.vy *= decay
+      e.w.multiplyScalar(Math.exp(-dt * 2.4))
       const back = smooth((now - e.lastTouch - 1.2) / 1.8)
-      if (shp?.kind === 'text') {
+      if (shp?.pose === 'face') {
         // type should stay readable: rock gently around facing the viewer instead of turning away
-        const ty = (spin ? Math.sin(now * 0.4) * 0.5 : 0) + Math.PI * 2 * Math.round(e.ry / (Math.PI * 2))
+        const yaw = yawOf(e.q)
+        const ty = (spin && !reduce ? Math.sin(now * 0.4) * 0.5 : 0) + Math.PI * 2 * Math.round(yaw / (Math.PI * 2))
         const k = (1 - Math.exp(-dt * 1.4)) * back
-        e.ry += e.vy * dt + (ty - e.ry) * k; e.rx += e.vx * dt + (0.12 - e.rx) * k
-      } else {
-        e.ry += (e.vy + (spin ? 0.22 * back : 0)) * dt; e.rx += e.vx * dt
+        e.q.slerp(FACE.setFromEuler(FACE_E.set(TILT - 0.2, ty, 0, 'XYZ')), k)
+        e.w.multiplyScalar(1 - k)
+      } else if (spin && !reduce) {
+        // the idle spin eases in from whatever axis the fling left behind instead of snapping to Y
+        e.w.lerp(Y.set(0, Math.max(0.22, e.w.length()), 0), back * (1 - Math.exp(-dt * 2)))
       }
     }
-    e.rx = Math.max(-1.35, Math.min(1.35, e.rx))
-    const g = group.current
-    g.rotation.set(e.rx, e.ry, 0, 'XYZ')
+    const wl = e.w.length()
+    if (wl > 1e-6) e.q.premultiply(Q.setFromAxisAngle(W.copy(e.w).divideScalar(wl), wl * dt))
+    group.current.quaternion.copy(e.q)
+
     // fit the object to the screen: its width as it turns, and its height clear of header and caption
     const vp = viewport.getCurrentViewport(camera, [0, 0, 0])
     const across = shp?.across ?? R, up = shp?.up ?? R
-    e.fit += (Math.min(1.3, (vp.width * 0.9) / (2 * across), (vp.height * 0.58) / (2 * up)) - e.fit) * (1 - Math.exp(-dt * 2.5))
+    const fitTo = Math.min(1.3, (vp.width * 0.9) / (2 * across), (vp.height * 0.58) / (2 * up))
+    e.fit += (fitTo - e.fit) * (1 - Math.exp(-dt * 2.5))
     const fit = e.fit
-    g.scale.setScalar(e.zoom * fit)
+    // while a grab is held the object squashes a few percent toward the pointer and springs back
+    e.squash += ((e.grab.mode === 1 ? 0.04 : 0) - e.squash) * (1 - Math.exp(-dt * (e.grab.mode === 1 ? 9 : 4)))
+    squash.current.scale.set(e.zoom * fit * (1 - e.squash * e.squashDir.x), e.zoom * fit * (1 - e.squash * e.squashDir.y), e.zoom * fit)
     // on tall phone screens lift the object clear of the caption
-    g.position.y = vp.width / vp.height < 0.8 ? vp.height * 0.06 : 0
+    group.current.position.y = vp.width / vp.height < 0.8 ? vp.height * 0.06 : 0
+    const sh = ground.current
+    sh.visible = !!shp && mode !== 'grid'
+    if (sh.visible) {
+      sh.position.y = group.current.position.y - up * e.zoom * fit * 0.95
+      sh.scale.set(across * 1.25 * e.zoom * fit, 1, across * 0.8 * e.zoom * fit)
+    }
 
     // the occluder grows with the object as it assembles, so dots fly in front of it, not through it
     const o = occ.current
@@ -405,22 +479,55 @@ export function Stage({ shape, mode, theme, tint, atlas, spin }: Props) {
 
     const persp = camera as THREE.PerspectiveCamera
     const u = mat.uniforms
+    const scale = (size.height * viewport.dpr) / (2 * Math.tan((persp.fov * Math.PI) / 360))
     u.uTime.value = now
-    u.uScale.value = (size.height * viewport.dpr) / (2 * Math.tan((persp.fov * Math.PI) / 360))
+    u.uEnter.value = e.start
+    u.uPhase.value = e.phase === 'assemble' ? 1 : e.phase === 'burst' ? 2 : 0
+    u.uScan.value.set(e.scanDir.x, e.scanDir.y, e.scanDir.z, scanOn ? e.scanStart : -1)
+    u.uRipple.value = e.ripples.length
+    e.ripples.forEach((r, i) => u.uRipples.value[i].set(r.c.x, r.c.y, r.c.z, r.t))
+    u.uGrab.value.set(e.grab.point.x, e.grab.point.y, e.grab.point.z, e.grab.held)
+    u.uGrabMode.value = e.grab.mode
+    u.uOrient.value = orient && mode === 'letters' ? 1 : 0
+    u.uScale.value = scale
     u.uTwoSided.value = shp?.twoSided ? 1 : 0
     u.uBackFade.value += ((shp?.twoSided ? 0 : 1) - u.uBackFade.value) * (1 - Math.exp(-dt * 3))
     occMat.uniforms.uPush.value = 0.03 * e.zoom * fit
+    shadowMat.uniforms.uTime.value = now
+    shadowMat.uniforms.uScale.value = scale
+
+    // adaptive quality: a phone that cannot hold 20 ms a frame gets fewer pixels rather than fewer frames
+    e.frameMs += (dt - e.frameMs) * 0.05
+    if (now - e.lastFrame > 1.5) {
+      e.lastFrame = now
+      const dpr = viewport.dpr
+      if (e.frameMs > 0.02 && dpr > 1) setDpr(Math.max(1, dpr - 0.25))
+      else if (e.frameMs < 0.012 && dpr < 2) setDpr(Math.min(2, dpr + 0.25))
+    }
+
+    // once nothing is moving the canvas stops: no rAF, no work, until something asks for a frame
+    const moving = e.drag || e.phase !== 'idle' || e.ripples.length > 0 || scanOn || (spin && !reduce) ||
+      wl > 0.005 || e.squash > 0.001 || Math.abs(fitTo - fit) > 0.002
+    if (moving !== e.moving) { e.moving = moving; setStill(!moving) }
 
     if (now - e.lastInfo > 0.1) {
       e.lastInfo = now
-      infoStore.set({ phase: e.phase === 'assemble' ? 'assembling' : e.phase === 'burst' ? 'scattering' : scan >= 0 && scan <= 1 ? 'scanning' : 'rendering', glyphs: shp?.count ?? 0 })
+      infoStore.set({ phase: e.phase === 'assemble' ? 'assembling' : e.phase === 'burst' ? 'scattering' : scanOn ? 'scanning' : 'rendering', glyphs: shp?.count ?? 0 })
     }
   })
 
+  useEffect(() => {
+    setFrameloop(paused ? 'never' : still ? 'demand' : 'always')
+    if (still && !paused) invalidate()
+  }, [still, paused, setFrameloop, invalidate])
+
   return (
-    <group ref={group}>
-      <mesh ref={occ} material={occMat} renderOrder={-1} frustumCulled={false} />
-      <points geometry={geo} material={mat} frustumCulled={false} />
+    <group ref={squash}>
+      <points ref={ground} geometry={shadowGeo} material={shadowMat} frustumCulled={false} />
+      <group ref={group}>
+        <mesh ref={occ} material={occMat} renderOrder={-1} frustumCulled={false} />
+        <points geometry={geo} material={mat} frustumCulled={false} />
+      </group>
     </group>
   )
 }

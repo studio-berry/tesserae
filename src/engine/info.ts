@@ -24,6 +24,7 @@ export const stageApi = {
   snapshot: (_cols?: number): string => '',
   png: (): string => '',
   burst: () => {},
+  rotate: (_dx: number, _dy: number) => {},
 }
 
 // handy from the console while developing: stageApi.snapshot() prints the current view as text

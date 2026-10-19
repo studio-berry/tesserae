@@ -26,6 +26,13 @@ export const TINTS = [
 // 'source' keeps the object's own colours (vertex colours, materials, textures) when it has any
 export type TintId = (typeof TINTS)[number]['id'] | 'source'
 
+// Colours an object bakes into its own geometry. Named here so a theme change reaches them too,
+// and so nothing in src/objects/ carries a raw hex.
+export const PALETTE = {
+  rod: '#ffd08a', strand: '#8fa6d6',
+  baseA: '#ff9c62', baseT: '#4fd1a5', baseC: '#c08bff', baseG: '#f2c94c',
+} as const
+
 export const linear = (hex: string) => new THREE.Color(hex)
 
 // Small seeded PRNG so a seed always rebuilds the same object and the same sampling
