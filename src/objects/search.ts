@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
+import { passesContent } from './credit'
+import { tidyName } from './objaverse-index'
 import type { PromptResult, Provenance } from './prompt'
 
 // Wikimedia Commons is the only public 3d library with usable provenance and CORS, so both
@@ -12,6 +14,7 @@ const MAX_TRIS = 200_000
 export type Hit = {
   name: string
   title: string
+  description: string
   url: string
   page: string
   author: string
@@ -59,7 +62,9 @@ const text = (value: string | undefined, cap = 80) =>
     .trim()
     .slice(0, cap)
 
-const cleanTitle = (name: string) => name.replace(/\.[^.]+$/, '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80)
+// the title cleaner is shared with the objaverse index, so a title reads the same from either
+// source
+const cleanTitle = tidyName
 
 const scrape = (page: Page): Hit | null => {
   const info = page.imageinfo?.[0]
@@ -69,6 +74,8 @@ const scrape = (page: Page): Hit | null => {
   return {
     name,
     title: cleanTitle(name),
+    // the description is read in full: a hit can hide in the second sentence
+    description: text(meta.ImageDescription?.value, 300),
     url: info.url,
     page: info.descriptionurl ?? info.url,
     author: text(meta.Artist?.value) || text(meta.Credit?.value) || 'unknown',
@@ -127,6 +134,10 @@ export async function findModel(query: string): Promise<PromptResult | null> {
   const keys = words(query)
   const ranked = hits
     .filter((h) => /\.stl$/i.test(h.name) && h.bytes > 0 && h.bytes <= MAX_MODEL)
+    // a hit whose title or description is refused is dropped before it is tried, so the search
+    // moves on to the next one and a refused row never costs a download. The raw name is checked
+    // as well, because the link the credit carries is built from it and a title is cut short
+    .filter((h) => passesContent(h.title, h.description, h.name))
     .sort((a, b) => modelScore(b, keys) - modelScore(a, keys))
   for (const hit of ranked.slice(0, 3)) {
     try {
@@ -172,6 +183,9 @@ export async function findDrawing(query: string): Promise<Drawing | null> {
   const keys = words(query)
   const ranked = hits
     .filter((h) => /\.svg$/i.test(h.name) && h.bytes > 0 && h.bytes <= MAX_SVG)
+    // the same rule as the model path: a refused row is dropped before it is tried, and the raw
+    // name is checked too, because the credit's link is built from it
+    .filter((h) => passesContent(h.title, h.description, h.name))
     .sort((a, b) => drawingScore(b, keys) - drawingScore(a, keys))
   for (const hit of ranked.slice(0, 4)) {
     try {

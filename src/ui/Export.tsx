@@ -1,12 +1,40 @@
 import { useEffect, useRef, useState } from 'react'
+import { creditParts, type Credit } from '../objects/credit'
+import { scanLine } from '../safety'
 
 export type ExportItem = { kind: 'text'; text: string } | { kind: 'png'; url: string }
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'gen-ascii'
 
+// The credit of a searched model. The words are scanned, because the author and the licence come
+// from a third party. The link is not: a scan replaces a letter in place, so a link that was
+// scanned would point at nothing, and the licence asks for a link to the source.
+export const scanCredit = (credit: Credit | null, ramp: string) => {
+  if (!credit) return { words: '', url: '' }
+  const { author, licence, note } = creditParts(credit)
+  return { words: scanLine(`${author} · ${licence} · ${note}`, ramp), url: credit.url }
+}
+
+// The credit as one line, for a caption or a caption strip.
+export const creditText = (credit: Credit | null, ramp: string) => {
+  const c = scanCredit(credit, ramp)
+  return c.words ? `${c.words} · ${c.url}` : ''
+}
+
+// A whole text export: the header, the credit and the art. Every word is scanned, because the
+// title, the author and the licence of a searched model all come from a third party. The link is
+// the one thing left alone, because a link that was scanned would point at nothing.
+export const exportText = (body: string, caption: string, credit: Credit | null, ramp: string) => {
+  const lines = [`# gen-ascii · ${scanLine(caption, ramp)}`]
+  const c = scanCredit(credit, ramp)
+  if (c.words) lines.push(`# ${c.words} · ${c.url}`)
+  lines.push(body.split('\n').map((l) => scanLine(l, ramp)).join('\n'))
+  return lines.join('\n')
+}
+
 // Shows what an export produced: the ASCII itself (with a copy button) or the PNG. Showing it
 // instead of only downloading also works where downloads are blocked, such as embedded frames.
-export function Export({ item, onClose, caption }: { item: ExportItem; onClose: () => void; caption?: string }) {
+export function Export({ item, onClose, caption, credit }: { item: ExportItem; onClose: () => void; caption?: string; credit?: string }) {
   const pre = useRef<HTMLPreElement>(null)
   const [note, setNote] = useState('')
   useEffect(() => {
@@ -48,6 +76,7 @@ export function Export({ item, onClose, caption }: { item: ExportItem; onClose: 
           ? <pre ref={pre} className="ascii">{item.text}</pre>
           : <img className="shot" src={item.url} alt="the current view as an image" />}
         <p className="caption">{caption ?? 'gen-ascii'}</p>
+        {credit && <p className="caption">{credit}</p>}
         <div className="actions">
           {item.kind === 'text' ? <button type="button" onClick={copy}>copy</button> : !embedded && <button type="button" onClick={save}>download</button>}
           <button type="button" onClick={onClose}>close</button>

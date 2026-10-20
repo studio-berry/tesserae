@@ -224,6 +224,14 @@ h1 {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+.credit {
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.credit a {
+  color: inherit;
+}
 .legend {
   display: flex;
   align-items: baseline;
