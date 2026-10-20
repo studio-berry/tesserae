@@ -46,7 +46,27 @@ export const findObjaverse = async (query: string, options: ObjaverseOptions = {
   return drawRow(row, matches, index.revisions ?? {}, options)
 }
 
+// The next match, once the one that was tried has been set aside.
+//
+// The matches are stepped through in order, and each one that fails is dropped, so a refused
+// row does not cost the prompt its other nineteen.
+const nextMatch = (
+  tried: IndexRow,
+  matches: Match[],
+  revisions: Record<string, string>,
+  options: ObjaverseOptions
+): Promise<PromptResult | null> => {
+  const rest = matches.filter((m) => m.row.uid !== tried.uid)
+  const next = rest[0]
+  return next ? drawRow(next.row, rest, revisions, options) : Promise.resolve(null)
+}
+
 // The model a match points at, drawn.
+//
+// A match can fail in three ways: the content rules refuse it, the download does not arrive, or
+// the model cannot be parsed. Every one of them means the next match gets a turn, rather than
+// the whole prompt failing, because a prompt that matched twenty models should not be lost
+// because the first one was refused.
 const drawRow = async (
   row: IndexRow,
   matches: Match[],
@@ -54,7 +74,7 @@ const drawRow = async (
   options: ObjaverseOptions
 ): Promise<PromptResult | null> => {
   // the same content rules as any other result, read over the title and the caption
-  if (!passesContent(row.title, row.caption)) return null
+  if (!passesContent(row.title, row.caption)) return nextMatch(row, matches, revisions, options)
 
   const urls = glbUrls(row, revisions['allenai/objaverse'] ?? 'main')
   let loaded
@@ -68,8 +88,7 @@ const drawRow = async (
   }
   if (!loaded) {
     // the model could not be fetched or parsed, so the next match gets a turn
-    const next = matches.find((m) => m.row.uid !== row.uid)
-    return next ? drawRow(next.row, matches.filter((m) => m.row.uid !== row.uid), revisions, options) : null
+    return nextMatch(row, matches, revisions, options)
   }
   // the model has to meet the style contract: Y up and its front towards the viewer. A model
   // that cannot be read is left as it is rather than turned wrongly.
