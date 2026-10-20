@@ -5,8 +5,8 @@ drop a model file, and it assembles out of drifting dust as thousands of charact
 surface: the side facing the light takes heavy glyphs (`# % @`), the shadow side light ones (`. , :`),
 and the far side is hidden as if the object were solid.
 
-The look and the engine started from the dot-scene examples in
-[ivory-ui](https://github.com/mberrys/ivory-ui/tree/ascii-dots-ui): the same glyph atlas ranked by
+The look and the engine started from quick dot-scene examples in
+an emerging project. This standalone version uses the same glyph atlas ranked by
 ink, spring-driven dots that travel between formations, a dust shell for depth, bloom in dark
 mode, and the Fraunces + IBM Plex Mono type on paper or ink. Both fonts are served from this repo,
 so a first frame no longer waits on a font network. `docs/contracts.md` holds the interfaces the
