@@ -143,6 +143,43 @@ The word lists cannot catch every franchise, and the build does not claim they d
 that survive were read by eye during the prototype's report, which is why the lists are as
 long as they are.
 
+## Whether figures come back
+
+The index drops every model that is a figure, and the categories a model is filed under drop
+every model that is a character or a person. The reason is that most fan art is a character,
+and a character from somebody else's world cannot be told apart from a sculpture by its words
+alone. The cost is that a prompt for "knight", "robot", "statue" or "astronaut" finds nothing
+and falls back to Commons.
+
+The filters are the largest content filter by a factor of six. Of the 207,578 rows that were
+clean on every other count, the figure filter dropped 38,871, 18.7 per cent, and the category
+filter dropped a further 13,096, 6.3 per cent. The franchise words dropped 7,773, 3.7 per
+cent. So a quarter of the clean rows are gone because they hold a person.
+
+The decision is to keep the filter, for three reasons that the numbers support.
+
+The alternative in the issue is to allow figures whose words name a generic thing, once the
+denylist exists. The denylist exists, and it is the wrong tool here, because it holds models
+rather than words: it cannot say "a statue is fine, a statue of a named character is not",
+which is the distinction the allowance turns on. Allowing figures on their words would let
+back every model the filter now drops, since the filter drops them for being figures rather
+than for naming anything.
+
+The rows that survive already show the cost is small. Of the 20,000 rows the index ships,
+272, 1.4 per cent, have a title that names a figure or a person, and most of those are false
+positives of the measure rather than figures at all: "hand gun", "Longsword (Hand and A Half)",
+"Hand Grenade", "pirate ship". A prompt for a statue or a robot finds a build or a form rather
+than a figure, which is the same thing a prompt for an abstract word has always found.
+
+And the third reason is the rule the whole index runs under. A model of a person is the one
+kind of thing a content rule cannot check well: the words may be innocent, and a render of a
+named character is the clearest case of fan art there is. The filter is the conservative
+answer, and the app has no way to show a figure safely.
+
+The way back, if it is wanted, is a reviewed list of figure subjects rather than a word rule:
+the nouns a figure may be, checked by eye, the way the denylist was. That is a separate piece
+of work with its own review, and it is not blocked by anything here.
+
 ## The title rules
 
 The sketchfab titles are raw user text: "knife", "damm this is a knife", random capitals,
