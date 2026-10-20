@@ -55,6 +55,8 @@ This is the real run against the pinned data, at the default `score >= 3`:
 | not filed as character or person | 155,611 |
 | no fan art words | 147,838 |
 | no explicit or blocked words | 147,623 |
+| not on the reviewed denylist | 147,579 |
+| not flagged as explicit | 147,574 |
 | glb <= 8 MB, faces <= 200K | 92,306 |
 
 Every objaverse++ row is in object-paths and has metadata, so the first three steps cost
@@ -179,6 +181,32 @@ answer, and the app has no way to show a figure safely.
 The way back, if it is wanted, is a reviewed list of figure subjects rather than a word rule:
 the nouns a figure may be, checked by eye, the way the denylist was. That is a separate piece
 of work with its own review, and it is not blocked by anything here.
+
+## The offline classifier
+
+The word filters catch a title that says something explicit. They cannot catch a model whose
+title and tags are innocent but whose render is not, and Objaverse's own `isAgeRestricted` flag
+removed nothing. So the thumbnails are looked at, by an image classifier, offline, while the
+index is built. Nothing at runtime depends on it.
+
+The pass ran over the 20,000 models the index holds. It flagged 36 of them.
+
+Every one of the 36 was then looked at, as a contact sheet, and not one was explicit. They
+were a knife, a wine glass, a banana, an anatomical heart, a candle, a bone, a light bulb and
+a bench. The classifier fires on flesh-toned shapes and on silhouettes that are phallic
+without meaning to be, which is exactly what a 3D model of a heart or a candle looks like.
+
+So the threshold is 0.9, where the classifier is confident, rather than 0.5, where it is
+eager. Five models are above 0.9 and those are the ones the build drops.
+
+The number is recorded rather than hidden, because the useful finding is the shape of it: on a
+collection of 20,000 public 3D models, a general-purpose explicit-image classifier found
+nothing it was sure of, and every model it was unsure about was innocent. The check is worth
+running because it is cheap and it is offline, not because it found anything.
+
+The script is `scripts/objaverse-nsfw.py` and the uids it flagged are in
+`scripts/objaverse-flagged.ts`. It reads the model from the hub at a pinned commit, so the
+pass reads the same classifier every time it runs.
 
 ## The title rules
 

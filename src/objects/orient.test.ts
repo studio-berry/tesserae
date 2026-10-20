@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { alignFront, alignUp, bottomFlatness, extentsOf, orient, standing } from './orient'
+import { alignFront, alignUp, applyOrientation, bottomFlatness, extentsOf, orient, standing } from './orient'
+import { surfaceFrom } from './soup'
 
 // A box of points, standing on a face, in a given orientation.
 const box = (w: number, h: number, d: number, rot?: THREE.Quaternion) => {
@@ -128,6 +129,52 @@ describe('alignFront', () => {
       expect(after.x, `front ${front.toArray()}`).toBeCloseTo(0, 6)
       expect(after.y, `front ${front.toArray()}`).toBeCloseTo(0, 6)
     }
+  })
+})
+
+describe('applyOrientation', () => {
+  it('reaches the geometry the stage draws', () => {
+    // the triangle soup is built in the root's own space, so a correction that only turned the
+    // root would be cancelled before it reached the samples
+    //
+    // The model is a box lying on its side, and the correction is the one orient reads from
+    // it, so the test goes through the whole path rather than through a hand-made rotation.
+    const g = new THREE.BoxGeometry(1, 3, 1)
+    g.applyQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2))
+    const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial())
+    const root = new THREE.Group()
+    root.add(mesh)
+    root.updateMatrixWorld(true)
+
+    const pts: number[] = []
+    const attr = g.getAttribute('position')
+    for (let i = 0; i < attr.count; i++) pts.push(attr.getX(i), attr.getY(i), attr.getZ(i))
+    const o = orient(new Float32Array(pts))
+    expect(o.confidence).toBeGreaterThan(0)
+    applyOrientation(root, o)
+
+    const s = surfaceFrom(root)
+    expect(s.soup).not.toBeNull()
+    const pos = s.soup!.pos
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+    for (let i = 0; i < pos.length; i += 3) {
+      if (pos[i] < x0) x0 = pos[i]
+      if (pos[i] > x1) x1 = pos[i]
+      if (pos[i + 1] < y0) y0 = pos[i + 1]
+      if (pos[i + 1] > y1) y1 = pos[i + 1]
+    }
+    // the box was three long and one wide, so standing it up makes it taller than it is wide
+    expect((y1 - y0) / (x1 - x0)).toBeGreaterThan(2)
+  })
+
+  it('leaves a model alone when there is nothing to correct', () => {
+    const g = new THREE.BoxGeometry(1, 3, 1)
+    const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial())
+    const root = new THREE.Group()
+    root.add(mesh)
+    const before = mesh.quaternion.clone()
+    applyOrientation(root, { quaternion: new THREE.Quaternion(), confidence: 0 })
+    expect(mesh.quaternion.angleTo(before)).toBeCloseTo(0, 6)
   })
 })
 

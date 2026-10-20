@@ -13,6 +13,7 @@ import {
   type Candidate,
 } from '../../scripts/objaverse-filters.ts'
 import { DENYLIST } from '../../scripts/objaverse-denylist.ts'
+import { FLAGGED } from '../../scripts/objaverse-flagged.ts'
 import { isExplicit, isFanArt } from '../safety/content.ts'
 import { indexTokens, tidyName } from './objaverse-index.ts'
 // A row that passes every step, so a test can break one thing at a time.
@@ -65,6 +66,7 @@ describe('the build funnel', () => {
       'no fan art words',
       'no explicit or blocked words',
       'not on the reviewed denylist',
+      'not flagged as explicit',
       'glb <= 8 MB, faces <= 200K',
     ])
   })
@@ -192,6 +194,23 @@ describe('the explicit guard in the build', () => {
   it('does not fire across word boundaries', () => {
     const step = stepFor('no explicit or blocked words')
     expect(step.keep(good({ title: 'model', caption: 'What is happening here.' }))).toBe(true)
+  })
+})
+
+describe('the offline classifier', () => {
+  it('drops a model the classifier flagged as explicit', () => {
+    const step = stepFor('not flagged as explicit')
+    expect(step.keep(good({ uid: FLAGGED[0].uid }))).toBe(false)
+  })
+
+  it('keeps a model the classifier did not flag', () => {
+    const step = stepFor('not flagged as explicit')
+    expect(step.keep(good())).toBe(true)
+  })
+
+  it('holds no duplicate uids', () => {
+    const uids = FLAGGED.map((f) => f.uid)
+    expect(new Set(uids).size).toBe(uids.length)
   })
 })
 

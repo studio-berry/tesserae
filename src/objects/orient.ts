@@ -293,8 +293,23 @@ export const orient = (positions: ArrayLike<number>): Orientation => {
 }
 
 // Applies an orientation to a model, in place.
+//
+// The correction goes on the model's meshes rather than on its root, because the triangle soup
+// is built in the root's own space: the root's transform is multiplied out, so a rotation on
+// the root would be cancelled before it reached the samples. Rotating the meshes puts the
+// correction where it is read.
 export const applyOrientation = (root: THREE.Object3D, o: Orientation) => {
   if (o.confidence <= 0) return root
-  root.quaternion.premultiply(o.quaternion)
+  root.updateMatrixWorld(true)
+  // the correction is in world terms, and the meshes sit in the root's space, so it is moved
+  // into that space first
+  const parent = new THREE.Quaternion()
+  root.getWorldQuaternion(parent)
+  const local = parent.clone().invert().multiply(o.quaternion).multiply(parent)
+  root.traverse((child) => {
+    if (child === root) return
+    child.quaternion.premultiply(local)
+  })
+  root.updateMatrixWorld(true)
   return root
 }

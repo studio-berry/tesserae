@@ -11,6 +11,7 @@ import { isExplicit, isFanArt, makeGuard } from '../src/safety/content.ts'
 import { BLOCKED } from '../src/safety/words.ts'
 import { indexTokens, tidyName } from '../src/objects/objaverse-index.ts'
 import { denied } from './objaverse-denylist.ts'
+import { flagged } from './objaverse-flagged.ts'
 
 // The app's own refusal list, so no row says a word the prompt box would refuse.
 export const blockedGuard = makeGuard([], BLOCKED.map((e) => e.word), 1)
@@ -95,6 +96,9 @@ export const funnelSteps = (minScore: number): Step[] => [
   // the models the word filters could not catch, found by looking at the top match of a list of
   // everyday nouns. The list is reviewed rather than generated, so it is worth reading.
   { label: 'not on the reviewed denylist', kind: 'meta', keep: (r) => !denied(r.uid) },
+  // the models an image classifier flagged as explicit. The pass runs offline while the index
+  // is built, and nothing at runtime depends on it.
+  { label: 'not flagged as explicit', kind: 'meta', keep: (r) => !flagged(r.uid) },
   {
     label: `glb <= ${MAX_BYTES / 1e6} MB, faces <= ${MAX_FACES / 1e3}K`,
     kind: 'meta',
