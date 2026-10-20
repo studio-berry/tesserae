@@ -1,6 +1,6 @@
-import { BLOCKED, type Kind } from './words'
+import { BLOCKED, type Kind } from './words.ts'
 
-export type { Kind } from './words'
+export type { Kind } from './words.ts'
 
 // The only sentence a refusal ever shows. The matched word stays inside this module.
 export const REFUSAL = 'That word is blocked. Try another.'

@@ -66,6 +66,13 @@ resultPasses(text: string): boolean
 A searched hit whose title or description fails `checkResult` is skipped, and the search moves on
 to the next one. The reason is never shown, because naming the word would defeat the rule.
 
+The rule for a result is a whole token and nothing else. The run scan, which counts a word
+wherever its letters start, is for typed input, where a word written with its letters held
+apart is typed on purpose, and for exported ASCII, where the letters of a word sit side by side
+in a grid. A title is neither: "book shelf" is a bookshelf, and "Tropical 4" is a palm. A rule
+that counted the letters inside a word refused a fish called Seabass, a Low Poly Assault Rifle
+and a Bookshelf, so the result rule matches whole tokens only.
+
 ## The credit
 
 A searched model or drawing carries its credit, and CC BY and CC BY-SA both ask for the author,

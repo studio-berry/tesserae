@@ -7,14 +7,11 @@
 // The content guards come from src/safety/content.ts, so a row the build drops is a row the
 // app would also refuse to show. The app and the build cannot disagree about fan art.
 
-import { isExplicit, isFanArt, makeGuard } from '../src/safety/content.ts'
-import { BLOCKED } from '../src/safety/words.ts'
+import { isFanArt } from '../src/safety/content.ts'
+import { resultPasses } from '../src/safety/result.ts'
 import { indexTokens, tidyName } from '../src/objects/objaverse-index.ts'
 import { denied } from './objaverse-denylist.ts'
 import { flagged } from './objaverse-flagged.ts'
-
-// The app's own refusal list, so no row says a word the prompt box would refuse.
-export const blockedGuard = makeGuard([], BLOCKED.map((e) => e.word), 1)
 
 // The categories a model is filed under when it is a character or a person.
 export const CHARACTER_CATEGORIES = new Set(['characters-creatures', 'people'])
@@ -88,10 +85,17 @@ export const funnelSteps = (minScore: number): Step[] => [
     keep: (r) => !r.categories.split(' ').some((c) => CHARACTER_CATEGORIES.has(c)),
   },
   { label: 'no fan art words', kind: 'caption', keep: (r) => !isFanArt(rowText(r)) },
+  // the app's own rule, over the title and the caption together. It is the rule the app
+  // applies to a result it shows, so a row the build keeps is a row the app would show, and a
+  // row the app would refuse never reaches the index.
+  //
+  // The earlier version of this step read the title, the tags and the caption with the build's
+  // own guards, which matched whole words while the app matches anywhere in the text. The two
+  // disagreed, and 491 rows the build kept were rows the app would refuse.
   {
     label: 'no explicit or blocked words',
     kind: 'caption',
-    keep: (r) => !isExplicit(rowText(r)) && !blockedGuard(rowText(r)),
+    keep: (r) => resultPasses(`${r.title} ${r.caption}`),
   },
   // the models the word filters could not catch, found by looking at the top match of a list of
   // everyday nouns. The list is reviewed rather than generated, so it is worth reading.

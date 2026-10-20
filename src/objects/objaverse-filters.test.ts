@@ -4,7 +4,6 @@ import {
   LICENCES,
   MAX_BYTES,
   MAX_FACES,
-  blockedGuard,
   fallbackTitle,
   funnelSteps,
   rowText,
@@ -15,6 +14,7 @@ import {
 import { DENYLIST } from '../../scripts/objaverse-denylist.ts'
 import { FLAGGED } from '../../scripts/objaverse-flagged.ts'
 import { isExplicit, isFanArt } from '../safety/content.ts'
+import { resultPasses } from '../safety/result.ts'
 import { indexTokens, tidyName } from './objaverse-index.ts'
 // A row that passes every step, so a test can break one thing at a time.
 const good = (over: Partial<Candidate> = {}): Candidate => ({
@@ -181,9 +181,24 @@ describe('the explicit guard in the build', () => {
 
   it('drops a caption with a blocked word from the app list', () => {
     const step = stepFor('no explicit or blocked words')
-    expect(blockedGuard('a horrible thing')).toBe(false)
-    expect(blockedGuard('a model with a cock')).toBe(true)
+    // the app's own rule, so the build and the app cannot disagree
+    expect(resultPasses('a horrible thing')).toBe(true)
+    expect(resultPasses('a model with a cock')).toBe(false)
     expect(step.keep(good({ title: 'model', caption: 'A model with a cock.' }))).toBe(false)
+  })
+
+  it('keeps a title that merely holds the letters of a blocked word', () => {
+    // the build and the app have to agree about the title, not only about the caption, and the
+    // rule is the whole-word one: a fish called "Seabass" and a "Low Poly Assault Rifle" are
+    // not the word
+    const step = stepFor('no explicit or blocked words')
+    expect(step.keep(good({ title: 'Assault rifle', caption: 'A rifle.' }))).toBe(true)
+    expect(step.keep(good({ title: 'Seabass', caption: 'A fish.' }))).toBe(true)
+  })
+
+  it('drops a title the app would refuse, even when the caption is clean', () => {
+    const step = stepFor('no explicit or blocked words')
+    expect(step.keep(good({ title: 'cock', caption: 'A bird.' }))).toBe(false)
   })
 
   it('keeps an ordinary caption', () => {
