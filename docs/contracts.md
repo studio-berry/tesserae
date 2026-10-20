@@ -50,6 +50,48 @@ maskName(name: string): string                // m•••l.glb
 Nothing above ever returns the matched word to the caller for display. `REFUSAL` is the only
 string the user sees.
 
+The content rule is separate, because it applies to every source and not only to what the user
+typed. `src/safety/content.ts` holds the fan art and explicit guards, and `src/safety/result.ts`
+holds the rule for a row that came back from a search.
+
+```ts
+// src/safety
+isFanArt(text: string): boolean       // a character or a piece of somebody else's world
+isExplicit(text: string): boolean      // material that shows a body
+checkContent(text: string): { ok: true } | { ok: false; reason: string }
+checkResult(text: string): { ok: true } | { ok: false; reason: string }  // the blocklist too
+resultPasses(text: string): boolean
+```
+
+A searched hit whose title or description fails `checkResult` is skipped, and the search moves on
+to the next one. The reason is never shown, because naming the word would defeat the rule.
+
+## The credit
+
+A searched model or drawing carries its credit, and CC BY and CC BY-SA both ask for the author,
+the licence, a link to the source and a note that the work was changed.
+
+```ts
+// src/objects/credit.ts
+CREDIT_NOTE: string                          // 'rendered as ASCII'
+creditLine(c: Credit): string                // one line of text
+creditParts(c: Credit): { author, licence, note, url }
+passesContent(...parts: (string | undefined)[]): boolean
+```
+
+The exports live in `src/ui/Export.tsx`, and they scan what they print.
+
+```ts
+scanCredit(credit: Credit | null, ramp: string): { words: string; url: string }
+creditText(credit: Credit | null, ramp: string): string
+exportText(body: string, caption: string, credit: Credit | null, ramp: string): string
+```
+
+The words are scanned, because the author and the licence come from a third party. The link is
+not, because a scan replaces a letter in place and a scanned link points at nothing. The export
+header is scanned like the art, because it carries the title, and for a prompt the title came
+from a third party too.
+
 ## Shape
 
 `prepare(source, count, seed)` is the only entry point, and it returns the contract every source
@@ -98,12 +140,99 @@ type PromptResult = {
 }
 ```
 
+## The Objaverse index
+
+`scripts/objaverse-index.ts` writes it and the prompt backend reads it. Both meet here, so the
+format is stated once and neither half invents it. The file is
+`public/objaverse/index.json.gz`, and the path constants live in
+`src/objects/objaverse-index.ts`.
+
+```ts
+type Index = {
+  version: string   // the build id, so a stale cache can be told from a fresh one
+  rows: number
+  revisions: Record<string, string>  // a dataset, and the commit the build read
+  data: IndexRow[]
+}
+
+type IndexRow = {
+  uid: string
+  title: string   // the sketchfab title, cleaned
+  caption: string // the cap3d description
+  chunk: string   // the hub folder, e.g. "000-023"
+  author: string
+  licence: string
+}
+```
+
+The GLB is not in the index. The app fetches it from the hub by uid and chunk, so the index
+stays a megabyte rather than a gigabyte.
+
+`tidyName` cleans a title, and both the commons path and the index use it, so the same name
+reads the same from either source. `indexTokens` reads a text into the words a match is made
+of, and `rowTokens` reads a row's title and caption apart.
+
+The build's filters live in `scripts/objaverse-filters.ts`, and they import `isFanArt` and
+`isExplicit` from `src/safety/content.ts`. The build and the app cannot disagree about what
+is fan art or what is explicit.
+
+## The Objaverse backend
+
+The index is fetched the first time a prompt runs and then held in memory, so an ordinary page
+load never pays for it. A prompt that reaches the backend is matched against the index, and the
+winning model's GLB is fetched from the hub.
+
+```ts
+// src/objects/objaverse-fetch.ts
+objaverseIndex(): Promise<Index | null>   // fetched once and held
+
+// src/objects/objaverse-match.ts
+CUTOFF: number                            // the share of a prompt a row must hold
+matchRows(rows: IndexRow[], prompt: string, limit?: number): Match[]
+pickRow(matches: Match[], step: number): IndexRow | null
+
+// src/objects/objaverse.ts
+findObjaverse(query: string, options?: { step?: number }): Promise<PromptResult | null>
+```
+
+A match is the share of the prompt's words a row holds, and a row below `CUTOFF` is not a
+match. A row whose title agrees with its description outranks one that only matches the
+description, because the title is the name the author gave the model.
+
+The step is the reroll: the index holds many models for one prompt, and the step says which to
+take, so pressing reroll gives a different model rather than the same one again. The step is
+the seed, and a prompt result is cached by prompt and seed.
+
+Every step can fail and every failure falls through: no index, no match, a row the content
+rules refuse, a download that does not arrive, a model that cannot be parsed. The backend
+never throws.
+
+## Orientation
+
+A model has to meet the style contract before it is sampled: Y up, and its front facing +Z.
+glTF says Y is up, but a model uploaded to a sharing site can be authored any way up.
+
+```ts
+// src/objects/orient.ts
+orient(positions: ArrayLike<number>): Orientation   // { quaternion, confidence }
+applyOrientation(root: THREE.Object3D, o: Orientation): THREE.Object3D
+```
+
+The correction is a search over the ways a model can be stood up, scored by how tall it stands
+and how flat its bottom is. A model that already stands is not turned. A model with no readable
+axis is left alone, because a wrong turn reads worse than the original.
+
+A check over sixty models taken from the collection the app would ship turned forty-three of
+them, and every one of the forty-three stood upright afterwards. The seventeen that were left
+alone were already standing.
+
+
 ## UI props
 
 ```ts
 Hud({ shape, status, error, theme, ramp, onRetry })
 Panel({ ..., surprise, setSurprise, edges, setEdges })
-Export({ item, onClose, caption })
+Export({ item, onClose, caption, credit })
 Post({ mode, theme, atlas, orient })
 ```
 

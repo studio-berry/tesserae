@@ -1,7 +1,11 @@
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { mulberry32 } from '../engine/core'
-import { REFUSAL } from '../safety'
+import { REFUSAL, blockedRun } from '../safety'
+import { Hud } from '../ui/Hud'
+import { creditText, exportText } from '../ui/Export'
 import { fromPrompt, normalisePrompt } from './prompt'
 import { svgObject } from './svg'
 
@@ -95,6 +99,8 @@ describe('fromPrompt', () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8"/></svg>'
     const calls = stubFetch((url) => {
       if (url.includes('filetype%3A3d')) return { json: { query: { pages: {} } } }
+      // the hub sits between the model search and the drawing, and it has no index here
+      if (url.includes('objaverse')) return { status: 404 }
       if (url.includes('filetype%3Adrawing')) {
         return { json: page('Box.svg', 'https://upload.wikimedia.org/box.svg', 'image/svg+xml', {
           Artist: { value: 'Bo' },
@@ -105,9 +111,10 @@ describe('fromPrompt', () => {
       return null
     })
     const result = await fromPrompt('box', mulberry32(2))
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(4)
     expect(decodeURIComponent(calls[0])).toContain('filetype:3d')
-    expect(decodeURIComponent(calls[1])).toContain('filetype:drawing')
+    expect(calls[1]).toContain('objaverse')
+    expect(decodeURIComponent(calls[2])).toContain('filetype:drawing')
     expect(result.title).toBe('Box')
     expect(result.detail).toBe('flat svg · CC BY 4.0')
     expect(result.flat).toBe(true)
@@ -239,5 +246,107 @@ describe('the prompt path stays keyless', () => {
     const hosts = [...source('search.ts').matchAll(/https:\/\/([a-z0-9.-]+)/g)].map((m) => m[1])
     expect(hosts.length).toBeGreaterThan(0)
     expect([...new Set(hosts)].every((h) => h.endsWith('wikimedia.org'))).toBe(true)
+  })
+})
+
+// The credit of a searched model, and the export that carries it. CC BY and CC BY-SA both ask for
+// the author, the licence, a link to the source and a note that the work was changed, so all four
+// have to be in the caption and in the export.
+describe('the credit of a searched model', () => {
+  const RAMP = ".,:;'-~=+*^!/|<>abcdefghijklmnopqrstuvwxyz#%&@$"
+
+  it('gives a prompt result a credited caption and a credited export header', async () => {
+    stubFetch((url) => {
+      if (url.includes('filetype%3A3d')) {
+        return { json: page('Tiny_pyramid.stl', 'https://upload.wikimedia.org/thing.stl', 'application/sla', {
+          Artist: { value: 'Ada' },
+          LicenseShortName: { value: 'CC BY-SA 4.0' },
+        }) }
+      }
+      if (url.includes('upload.wikimedia.org')) return { text: TRIANGLE }
+      return null
+    })
+    const result = await fromPrompt('the tiny pyramid', mulberry32(1))
+    expect(result.source).not.toBeNull()
+
+    // the caption shows the author, the licence, the note and a link to the source
+    const html = renderToStaticMarkup(createElement(Hud, {
+      shape: {
+        key: 'k', kind: 'prompt', title: result.title, detail: result.detail, twoSided: true,
+        occluder: null, triangles: 3, across: 1, up: 1, glyphSize: 1, pose: 'spin', flat: false,
+        pos: new Float32Array(0), nrm: new Float32Array(0), count: 0, spacing: 1, col: null,
+        source: result.source,
+      },
+      status: '',
+      error: '',
+    }))
+    expect(html).toContain('Ada')
+    expect(html).toContain('CC BY-SA 4.0')
+    expect(html).toContain('rendered as ASCII')
+    expect(html).toContain('href="https://commons.wikimedia.org/wiki/File:Thing"')
+
+    // and the export carries the same credit
+    const caption = `${result.title} · letters · 6.0k · letters`
+    const out = exportText('@@@', caption, result.source, RAMP)
+    expect(out.split('\n')[0]).toContain('Tiny pyramid')
+    expect(out.split('\n')[1]).toContain('Ada')
+    expect(out.split('\n')[1]).toContain('CC BY-SA 4.0')
+    expect(out.split('\n')[1]).toContain('rendered as ASCII')
+    expect(out.split('\n')[1]).toContain('https://commons.wikimedia.org/wiki/File:Thing')
+  })
+
+  it('names the author, the licence, the note and the source', () => {
+    const line = creditText({ author: 'Ada', licence: 'CC BY-SA 4.0', url: 'https://commons.wikimedia.org/wiki/File:Anchor' }, RAMP)
+    expect(line).toContain('Ada')
+    expect(line).toContain('CC BY-SA 4.0')
+    expect(line).toContain('rendered as ASCII')
+    expect(line).toContain('https://commons.wikimedia.org/wiki/File:Anchor')
+  })
+
+  it('is empty when the shape has no source', () => {
+    expect(creditText(null, RAMP)).toBe('')
+  })
+
+  it('goes into the text export under the header', () => {
+    const out = exportText('@@@\n###', 'Anchor · letters · 6.0k · letters', { author: 'Ada', licence: 'CC BY-SA 4.0', url: 'https://commons.wikimedia.org/wiki/File:Anchor' }, RAMP)
+    const lines = out.split('\n')
+    expect(lines[0]).toContain('Anchor')
+    expect(lines[1]).toContain('Ada')
+    expect(lines[1]).toContain('CC BY-SA 4.0')
+    expect(lines[1]).toContain('rendered as ASCII')
+    expect(lines[1]).toContain('https://commons.wikimedia.org/wiki/File:Anchor')
+  })
+
+  it('leaves the link alone, because a repaired link points at nothing', () => {
+    const url = 'https://commons.wikimedia.org/wiki/File:Anchor'
+    const out = exportText('@@@', 'Anchor · letters · 6.0k · letters', { author: 'Ada', licence: 'CC BY 4.0', url }, RAMP)
+    expect(out).toContain(url)
+  })
+})
+
+// The header of an export carries the title, and for a prompt that title came from a third party,
+// so the header is scanned the same way the art is.
+describe('the export header is scanned', () => {
+  const RAMP = ".,:;'-~=+*^!/|<>abcdefghijklmnopqrstuvwxyz#%&@$"
+
+  it('keeps a blocked word out of the header', () => {
+    const out = exportText('@@@', 'Bad Ass · letters · 6.0k · letters', null, RAMP)
+    expect(out.split('\n')[0]).not.toContain('Ass')
+    expect(blockedRun(out.split('\n')[0])).toBeNull()
+  })
+
+  it('never lets a blocked title reach an export', () => {
+    const out = exportText('@@@', 'a pile of shit · letters · 6.0k · letters', null, RAMP)
+    expect(blockedRun(out)).toBeNull()
+  })
+
+  it('leaves a clean header alone', () => {
+    expect(exportText('@@@', 'Anchor · letters · 6.0k · letters', null, RAMP).split('\n')[0])
+      .toBe('# gen-ascii · Anchor · letters · 6.0k · letters')
+  })
+
+  it('scans the credit words too', () => {
+    const out = exportText('@@@', 'Anchor · letters · 6.0k · letters', { author: 'Bad Ass', licence: 'CC BY 4.0', url: 'https://x.test/a' }, RAMP)
+    expect(blockedRun(out)).toBeNull()
   })
 })

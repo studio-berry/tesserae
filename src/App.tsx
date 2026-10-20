@@ -11,8 +11,8 @@ import { defaultDensity, MODES, readUrl, writeUrl } from './engine/url'
 import { prepare, Shape, Source } from './objects'
 import { LIBRARY } from './objects/library'
 import { ACCEPT } from './objects/formats'
-import { checkTyped, maskName, scanLine } from './safety'
-import { Export, ExportItem } from './ui/Export'
+import { checkTyped, maskName } from './safety'
+import { Export, ExportItem, creditText, exportText } from './ui/Export'
 import { Coach, Frame } from './ui/Frame'
 import { Hud } from './ui/Hud'
 import { Panel } from './ui/Panel'
@@ -184,32 +184,38 @@ export default function App() {
   }, [surprise])
 
   const caption = `${shape?.title ?? 'gen-ascii'} · ${mode} · ${(density / 1000).toFixed(1)}k · ${charset}`
+  // a searched model or drawing carries its credit, and the licence asks for it in the export
+  const credit = shape?.source ?? null
   const copy = useCallback(() => {
     const body = stageApi.snapshot(96)
     if (!body) return
-    // every line is scanned for accidental words before it can be copied out of the app
-    const safe = body.split('\n').map((l) => scanLine(l, ramps.full)).join('\n')
-    setExported({ kind: 'text', text: `# gen-ascii · ${caption}\n${safe}` })
-  }, [caption, ramps.full])
+    // every line is scanned for accidental words before it can be copied out of the app, and the
+    // header carries a title that came from a third party, so it is scanned too
+    setExported({ kind: 'text', text: exportText(body, caption, credit, ramps.full) })
+  }, [caption, credit, ramps.full])
   const png = useCallback(() => {
     const url = stageApi.png()
     if (!url) return
     const img = new Image()
     img.onload = () => {
+      const creditLine = creditText(credit, ramps.full)
       const pad = Math.round(Math.max(22, img.height * 0.045))
+      // the strip grows to hold the credit, so the licence travels with the image
+      const strip = creditLine ? pad * 2 : pad
       const cv = document.createElement('canvas')
-      cv.width = img.width; cv.height = img.height + pad
+      cv.width = img.width; cv.height = img.height + strip
       const g = cv.getContext('2d')!
       g.drawImage(img, 0, 0)
-      g.fillStyle = THEMES[theme].bg; g.fillRect(0, img.height, cv.width, pad)
+      g.fillStyle = THEMES[theme].bg; g.fillRect(0, img.height, cv.width, strip)
       g.fillStyle = THEMES[theme].dust
       g.font = `500 ${Math.round(pad * 0.4)}px "IBM Plex Mono", ui-monospace, monospace`
       g.textBaseline = 'middle'
       g.fillText(caption, Math.round(pad * 0.35), img.height + pad / 2)
+      if (creditLine) g.fillText(creditLine, Math.round(pad * 0.35), img.height + pad * 1.5)
       setExported({ kind: 'png', url: cv.toDataURL('image/png') })
     }
     img.src = url
-  }, [caption, theme])
+  }, [caption, credit, ramps.full, theme])
 
   // keys: arrows step through the library, wasd and shift+arrows turn it, space scatters,
   // r rerolls, g changes mode, t theme
@@ -323,7 +329,7 @@ export default function App() {
       />
 
       <Coach />
-      {exported && <Export item={exported} onClose={() => setExported(null)} caption={caption} />}
+      {exported && <Export item={exported} onClose={() => setExported(null)} caption={caption} credit={creditText(credit, ramps.full) || undefined} />}
       {dragging && <div className="drop"><span>drop a model<br /><small>glb · gltf · obj · stl · ply · fbx</small></span></div>}
     </>
   )
