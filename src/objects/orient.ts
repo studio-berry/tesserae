@@ -113,7 +113,9 @@ export const principalAxes = (positions: ArrayLike<number>, centre: THREE.Vector
 // it is what lets a model authored at an angle be read.
 export const alignUp = (up: THREE.Vector3) => {
   const from = new THREE.Vector3(0, 1, 0)
-  const axis = new THREE.Vector3().crossVectors(from, up)
+  // the axis that carries one direction onto another is the cross of the two, in that order:
+  // cross(from, up) spins the wrong way round, and the model's up ends up pointing down
+  const axis = new THREE.Vector3().crossVectors(up, from)
   const angle = Math.acos(Math.min(1, Math.max(-1, from.dot(up))))
   if (axis.lengthSq() < 1e-12) {
     // the model's up is already the world up, or exactly opposite it
@@ -132,9 +134,16 @@ export const alignFront = (front: THREE.Vector3) => {
   if (from.lengthSq() < 1e-12 || to.lengthSq() < 1e-12) return new THREE.Quaternion()
   from.normalize()
   to.normalize()
-  const axis = new THREE.Vector3().crossVectors(from, to)
   const angle = Math.acos(Math.min(1, Math.max(-1, from.dot(to))))
-  if (axis.lengthSq() < 1e-12) return new THREE.Quaternion()
+  // the axis that carries one direction onto another is the cross of the two, in that order
+  const axis = new THREE.Vector3().crossVectors(from, to)
+  if (axis.lengthSq() < 1e-12) {
+    // the front is already the world front, or exactly opposite it. The opposite case is a half
+    // turn, and a half turn has no cross product to name its axis, so any axis across it will
+    // do
+    if (from.dot(to) > 0) return new THREE.Quaternion()
+    return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)
+  }
   return new THREE.Quaternion().setFromAxisAngle(axis.normalize(), angle)
 }
 

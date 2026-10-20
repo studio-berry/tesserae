@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { bottomFlatness, extentsOf, orient, standing } from './orient'
+import { alignFront, alignUp, bottomFlatness, extentsOf, orient, standing } from './orient'
 
 // A box of points, standing on a face, in a given orientation.
 const box = (w: number, h: number, d: number, rot?: THREE.Quaternion) => {
@@ -82,6 +82,52 @@ describe('standing', () => {
   it('reads a tall box as standing and a flat one as lying', () => {
     expect(standing(box(1, 3, 1), new THREE.Quaternion())).toBeGreaterThan(2)
     expect(standing(box(3, 0.5, 3), new THREE.Quaternion())).toBeLessThan(0.3)
+  })
+})
+
+describe('alignUp', () => {
+  it('carries a direction onto the world up', () => {
+    // the axis that carries one direction onto another is the cross of the two in that order,
+    // and the other order spins the wrong way round
+    for (const up of [
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(-1, 0, 0),
+      new THREE.Vector3(0, 0, -1),
+      new THREE.Vector3(1, 1, 0).normalize(),
+    ]) {
+      const after = up.clone().applyQuaternion(alignUp(up))
+      expect(after.y, `up ${up.toArray()}`).toBeCloseTo(1, 6)
+      expect(after.x, `up ${up.toArray()}`).toBeCloseTo(0, 6)
+      expect(after.z, `up ${up.toArray()}`).toBeCloseTo(0, 6)
+    }
+  })
+
+  it('leaves the world up alone', () => {
+    expect(alignUp(new THREE.Vector3(0, 1, 0)).angleTo(new THREE.Quaternion())).toBeCloseTo(0, 6)
+  })
+
+  it('turns an upside-down model the right way round', () => {
+    const down = new THREE.Vector3(0, -1, 0)
+    const after = down.clone().applyQuaternion(alignUp(down))
+    expect(after.y).toBeCloseTo(1, 6)
+  })
+})
+
+describe('alignFront', () => {
+  it('carries a direction onto the world front', () => {
+    for (const front of [
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(-1, 0, 0),
+      new THREE.Vector3(0, 0, -1),
+    ]) {
+      const after = front.clone().applyQuaternion(alignFront(front))
+      expect(after.z, `front ${front.toArray()}`).toBeCloseTo(1, 6)
+      expect(after.x, `front ${front.toArray()}`).toBeCloseTo(0, 6)
+      expect(after.y, `front ${front.toArray()}`).toBeCloseTo(0, 6)
+    }
   })
 })
 

@@ -222,8 +222,8 @@ The correction is a search over the ways a model can be stood up, scored by how 
 and how flat its bottom is. A model that already stands is not turned. A model with no readable
 axis is left alone, because a wrong turn reads worse than the original.
 
-A check over sixty models taken from the collection the app would ship turned forty-three of
-them, and every one of the forty-three stood upright afterwards. The seventeen that were left
+A check over sixty models taken from the collection the app would ship turned forty-five of
+them, and every one of the forty-five stood upright afterwards. The fifteen that were left
 alone were already standing.
 
 
