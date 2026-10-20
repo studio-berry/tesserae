@@ -19,6 +19,41 @@ npm test           # sampling, atlas, guard, export, prompt and URL tests
 npm run build      # typecheck + production build into dist/
 ```
 
+## The model index
+
+The prompt path can also reach [Objaverse](https://huggingface.co/datasets/allenai/objaverse), a
+free 3D collection of 800k models, through a static index at `public/objaverse/index.json.gz`.
+It holds 20,000 model descriptions: the uid, a cleaned title, the caption, the author and the
+licence. 1.05 MB gzipped, 3.4 MB raw, and 3.15 MB gzipped at 50,000 rows. The prompt path
+fetches it the first time a prompt runs and holds it in memory, so an ordinary page load never
+pays for it.
+
+It is built from three datasets, each read at a pinned commit so a rebuild gives the same file:
+
+```sh
+npm run index:objaverse:fetch    # downloads the 840 MB of inputs into .cache/objaverse
+npm run index:objaverse          # writes public/objaverse/index.json.gz
+npm run index:objaverse:report   # prints the filter funnel and the sizes, writes nothing
+```
+
+The inputs are not in the repo, and `.cache/` is ignored. The index itself is committed,
+because it is what the app serves and a rebuild reproduces it byte for byte.
+`docs/objaverse-index.md` has the funnel, the sizes, the licence findings and the title rules.
+
+### The credits
+
+- [Objaverse](https://huggingface.co/datasets/allenai/objaverse), by the Allen Institute for AI.
+  The collection as a whole is ODC-By v1.0; the individual objects are CC BY 4.0 and carry their
+  own author and licence, which the app shows with every result.
+- [Cap3D](https://huggingface.co/datasets/tiange/Cap3D), by the Tiange group. The model
+  descriptions are ODC-By v1.0.
+- [Objaverse++](https://huggingface.co/datasets/cindyxl/ObjaversePlusPlus), by cindyxl and
+  collaborators. The quality scores and the style traits are ODC-By v1.0.
+
+The Hub is a free dependency, like Wikimedia Commons, and needs no key. The GLB a row points at
+is fetched from the Hub by its uid, and the hub serves it with `access-control-allow-origin: *`.
+
+
 ## Using it
 
 - **Objects**: teapot, supershape, donut, knot, crystal, shell, klein, helix, asteroid.
