@@ -32,9 +32,20 @@ export const HUB_BASE = 'https://huggingface.co/datasets/allenai/objaverse/resol
 
 export const glbUrl = (row: IndexRow, revision: string) => `${HUB_BASE}/${revision}/${glbPath(row)}`
 
+// The Hub serves the same file from more than one address, so a request that fails at one of
+// them can be tried at the other. The mirror is the Hub's own cdn, which carries the same bytes
+// and the same access-control headers.
+export const HUB_MIRRORS = [
+  'https://huggingface.co/datasets/allenai/objaverse/resolve',
+  'https://hf-mirror.com/datasets/allenai/objaverse/resolve',
+]
+
+// The addresses a model can be fetched from, in the order they are tried.
+export const glbUrls = (row: IndexRow, revision: string) =>
+  HUB_MIRRORS.map((base) => `${base}/${revision}/${glbPath(row)}`)
+
 // The Sketchfab page a model came from. The uid is the model's own identifier there.
 export const sketchfabUrl = (uid: string) => `https://sketchfab.com/3d-models/${uid}`
-
 
 // The length a title is capped at, so a caption never runs off the screen.
 export const TITLE_MAX = 80
@@ -60,6 +71,8 @@ export const tidyName = (name: string): string => {
   const collapsed = spaced.replace(/\s+/g, ' ').trim()
   return collapsed.slice(0, TITLE_MAX).trim()
 }
+// The name of the objaverse index build, cleaned the same way.
+export const cleanTitle = tidyName
 // The words that carry no meaning when a prompt is matched against a caption. The prompt box
 // drops a smaller set of these before it asks Commons; the index needs the full set, because a
 // caption is a sentence rather than a search term.

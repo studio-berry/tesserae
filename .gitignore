@@ -6,3 +6,8 @@ __pycache__/
 
 # the objaverse inputs: 840 MB of datasets that the index build downloads
 .cache/
+
+# the python bytecode the offline classifier leaves behind
+__pycache__/
+*.pyc
+

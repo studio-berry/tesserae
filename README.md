@@ -133,9 +133,15 @@ file
 
 ## Nothing here needs a key
 
-The prompt path has three backends, and one of them always answers: a Wikimedia Commons model, a
-Wikimedia Commons drawing parsed into a flat figure, then a form grown from the words themselves.
-A hosted text-to-3D or LLM-scene backend was considered for the prompts those three miss, and it is
+The prompt path has four backends, and one of them always answers: a Wikimedia Commons model, a
+Hugging Face Hub model from the Objaverse index, a Wikimedia Commons drawing parsed into a flat
+figure, then a form grown from the words themselves.
+A hosted text-to-3D or LLM-scene backend was considered for the prompts those four miss, and it is
 deliberately out of scope, so no part of this app depends on a service that can be billed or
 withdrawn. A prompt that has neither a model nor a drawing on Commons gets a built form rather than
 an invented 2D figure.
+
+The Hub is a free dependency like Commons, and it needs no key either. It can be slow, it can
+rate-limit a request, and a dataset there can be gated or withdrawn, so every call into it is
+held to a timeout and a failure at any step falls through to the next backend. The index itself
+is a file this repo serves, so a Hub outage costs the app its best models and nothing else.
