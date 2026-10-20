@@ -66,7 +66,10 @@ describe('the objaverse index file', () => {
     }
   })
 
-  it('keeps only the rows the app may show', () => {
+  // The rule is read over every row, and the rows are 20,000 of them, so this takes longer
+  // than the suite's default. A machine under load takes a minute, and the test is worth the
+  // wait: it is the one that says the build and the app agree.
+  it('keeps only the rows the app may show', { timeout: 180_000 }, () => {
     const index = readIndex()
     // the app's own rule, over every row rather than a slice, because a slice cannot see a
     // row further down the index. The build and the app have to agree about every row they
