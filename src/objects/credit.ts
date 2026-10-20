@@ -1,4 +1,5 @@
 import { resultPasses } from '../safety/result'
+import { scanLine } from '../safety'
 import type { Provenance, PromptResult } from './prompt'
 
 // The credit a source has to carry. CC BY and CC BY-SA both ask for the author, the licence, a
@@ -26,6 +27,24 @@ export const creditParts = (c: Credit) => ({
   note: CREDIT_NOTE,
   url: c.url,
 })
+
+// The credit with its words scanned.
+//
+// The author, the licence and the note all come from a third party, and a name can hold a word
+// the prompt box would refuse, so they are scanned. The link is not: a scan replaces a letter
+// in place, so a scanned link would point at nothing, and the licence asks for a link to the
+// source.
+export const scanCredit = (credit: Credit | null, ramp: string) => {
+  if (!credit) return { words: '', url: '' }
+  const { author, licence, note } = creditParts(credit)
+  return { words: scanLine(`${author} · ${licence} · ${note}`, ramp), url: credit.url }
+}
+
+// The credit as one line, for a caption or a caption strip.
+export const creditText = (credit: Credit | null, ramp: string) => {
+  const c = scanCredit(credit, ramp)
+  return c.words ? `${c.words} · ${c.url}` : ''
+}
 
 // A result whose title or description fails the content rules is skipped, and the search moves
 // on to the next one. The reason is never shown, because naming the word would defeat the rule.

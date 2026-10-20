@@ -5,7 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { mulberry32 } from '../engine/core'
 import { REFUSAL, blockedRun } from '../safety'
 import { Hud } from '../ui/Hud'
-import { creditText, exportText } from '../ui/Export'
+import { creditText } from './credit'
+import { exportText } from '../ui/Export'
 import { fromPrompt, normalisePrompt } from './prompt'
 import { svgObject } from './svg'
 
@@ -305,6 +306,14 @@ describe('the credit of a searched model', () => {
 
   it('is empty when the shape has no source', () => {
     expect(creditText(null, RAMP)).toBe('')
+  })
+
+  it('scans the credit, because the author comes from a third party', () => {
+    // an author whose name holds a word the prompt box would refuse
+    const line = creditText({ author: 'assg709', licence: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/abc' }, RAMP)
+    expect(line).not.toContain('assg709')
+    // the link is still there, because a repaired link points at nothing
+    expect(line).toContain('https://sketchfab.com/3d-models/abc')
   })
 
   it('goes into the text export under the header', () => {
