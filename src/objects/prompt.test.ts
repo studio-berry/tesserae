@@ -99,6 +99,8 @@ describe('fromPrompt', () => {
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="1" y="1" width="8" height="8"/></svg>'
     const calls = stubFetch((url) => {
       if (url.includes('filetype%3A3d')) return { json: { query: { pages: {} } } }
+      // the hub sits between the model search and the drawing, and it has no index here
+      if (url.includes('objaverse')) return { status: 404 }
       if (url.includes('filetype%3Adrawing')) {
         return { json: page('Box.svg', 'https://upload.wikimedia.org/box.svg', 'image/svg+xml', {
           Artist: { value: 'Bo' },
@@ -109,9 +111,10 @@ describe('fromPrompt', () => {
       return null
     })
     const result = await fromPrompt('box', mulberry32(2))
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(4)
     expect(decodeURIComponent(calls[0])).toContain('filetype:3d')
-    expect(decodeURIComponent(calls[1])).toContain('filetype:drawing')
+    expect(calls[1]).toContain('objaverse')
+    expect(decodeURIComponent(calls[2])).toContain('filetype:drawing')
     expect(result.title).toBe('Box')
     expect(result.detail).toBe('flat svg · CC BY 4.0')
     expect(result.flat).toBe(true)

@@ -19,8 +19,15 @@ import {
 const here = dirname(fileURLToPath(import.meta.url))
 const indexPath = resolve(here, '..', '..', 'public', INDEX_DIR, INDEX_FILE)
 
-const readIndex = (): Index =>
-  JSON.parse(gunzipSync(readFileSync(indexPath)).toString('utf8')) as Index
+// The index is read once. It is a 20,000 row file, and reading it again for every test is
+// most of the time this file spends.
+let cached: Index | null = null
+const readIndex = (): Index => {
+  if (!cached) {
+    cached = JSON.parse(gunzipSync(readFileSync(indexPath)).toString('utf8')) as Index
+  }
+  return cached
+}
 
 describe('the objaverse index file', () => {
   it('sits at the path the app fetches', () => {
