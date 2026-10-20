@@ -35,6 +35,31 @@ export const glbUrl = (row: IndexRow, revision: string) => `${HUB_BASE}/${revisi
 // The Sketchfab page a model came from. The uid is the model's own identifier there.
 export const sketchfabUrl = (uid: string) => `https://sketchfab.com/3d-models/${uid}`
 
+
+// The length a title is capped at, so a caption never runs off the screen.
+export const TITLE_MAX = 80
+
+// The characters that are noise in a title: emoji, pictographs, the variation selectors and
+// the zero width joiner that holds an emoji together.
+const EMOJI =
+  /[\p{Extended_Pictographic}\p{Emoji_Presentation}\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}\u{20E3}]/gu
+
+// A title as the app shows it, cleaned. The rules are:
+//   1. a trailing file extension goes, but only when it starts with a letter, so 'revolver 2.0'
+//      keeps its number and 'knife.glb' loses its suffix
+//   2. underscores become spaces, because sketchfab runs words together
+//   3. emoji and pictographs go, because they are noise and never a name
+//   4. whitespace collapses and the ends are trimmed
+//   5. the length is capped
+//
+// The commons path and the objaverse index both read a title through this, so the same name
+// looks the same whichever source it came from.
+export const tidyName = (name: string): string => {
+  const withoutExtension = name.replace(/\.[A-Za-z][A-Za-z0-9]{0,7}$/, '')
+  const spaced = withoutExtension.replace(/_/g, ' ').replace(EMOJI, ' ')
+  const collapsed = spaced.replace(/\s+/g, ' ').trim()
+  return collapsed.slice(0, TITLE_MAX).trim()
+}
 // The words that carry no meaning when a prompt is matched against a caption. The prompt box
 // drops a smaller set of these before it asks Commons; the index needs the full set, because a
 // caption is a sentence rather than a search term.
