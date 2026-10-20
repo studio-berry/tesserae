@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run",
+    "index:objaverse": "node --max-old-space-size=2048 scripts/objaverse-index.ts --data .cache/objaverse --out public/objaverse/index.json.gz",
+    "index:objaverse:fetch": "node scripts/objaverse-index.ts --fetch --data .cache/objaverse",
+    "index:objaverse:report": "node --max-old-space-size=2048 scripts/objaverse-index.ts --data .cache/objaverse --report"
   },
   "dependencies": {
     "@react-three/fiber": "^9.1.2",
@@ -18,10 +21,12 @@
     "three": "^0.176.0"
   },
   "devDependencies": {
+    "@types/node": "^26.6.5",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
     "@types/three": "^0.176.0",
     "@vitejs/plugin-react": "^4.4.1",
+    "hyparquet": "^1.31.5",
     "typescript": "~5.8.3",
     "vite": "^6.3.5",
     "vitest": "^5.0.5"

@@ -1,25 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { creditParts, type Credit } from '../objects/credit'
+import { creditText, scanCredit, type Credit } from '../objects/credit'
 import { scanLine } from '../safety'
 
 export type ExportItem = { kind: 'text'; text: string } | { kind: 'png'; url: string }
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'gen-ascii'
-
-// The credit of a searched model. The words are scanned, because the author and the licence come
-// from a third party. The link is not: a scan replaces a letter in place, so a link that was
-// scanned would point at nothing, and the licence asks for a link to the source.
-export const scanCredit = (credit: Credit | null, ramp: string) => {
-  if (!credit) return { words: '', url: '' }
-  const { author, licence, note } = creditParts(credit)
-  return { words: scanLine(`${author} · ${licence} · ${note}`, ramp), url: credit.url }
-}
-
-// The credit as one line, for a caption or a caption strip.
-export const creditText = (credit: Credit | null, ramp: string) => {
-  const c = scanCredit(credit, ramp)
-  return c.words ? `${c.words} · ${c.url}` : ''
-}
 
 // A whole text export: the header, the credit and the art. Every word is scanned, because the
 // title, the author and the licence of a searched model all come from a third party. The link is

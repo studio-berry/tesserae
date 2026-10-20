@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { Rng } from '../engine/core'
 import { checkTyped, REFUSAL } from '../safety'
 import { LIBRARY } from './library'
+import { findObjaverse } from './objaverse'
 import { findDrawing, findModel } from './search'
 import { svgObject } from './svg'
 
@@ -72,9 +73,16 @@ function procedural(text: string, rng: Rng): PromptResult {
   }
 }
 
-// Searched model, then searched drawing, then a built form. A normal word never leaves here
-// without an object; only a blocked prompt stops the chain.
-export async function fromPrompt(text: string, rng: Rng): Promise<PromptResult> {
+// Searched model, then the hub, then searched drawing, then a built form. A normal word never
+// leaves here without an object; only a blocked prompt stops the chain.
+//
+// The hub sits after Commons, because Commons is a small catalogue where every file carries an
+// author and a licence, and the hub is a large one where the quality varies. It sits before the
+// drawing, because a real model answers a prompt better than a flat figure does.
+//
+// The step is the reroll: the hub holds many models for one prompt, and the step says which of
+// them to take, so pressing reroll gives a different model rather than the same one again.
+export async function fromPrompt(text: string, rng: Rng, step = 0): Promise<PromptResult> {
   const verdict = checkTyped(text)
   if (!verdict.ok) throw new Error(REFUSAL)
 
@@ -85,6 +93,12 @@ export async function fromPrompt(text: string, rng: Rng): Promise<PromptResult> 
       if (model) return model
     } catch {
       // the next backend gets a turn
+    }
+    try {
+      const hub = await findObjaverse(query, { step })
+      if (hub) return hub
+    } catch {
+      // the index or the hub was not reachable, so the next backend gets a turn
     }
     try {
       const drawing = await findDrawing(query)

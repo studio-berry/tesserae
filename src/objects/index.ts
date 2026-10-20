@@ -167,7 +167,9 @@ const build = async (src: Source, seed: number, count: number): Promise<Made> =>
     return { ...packed, source: null }
   }
   if (src.kind === 'prompt') {
-    const r = await fromPrompt(src.text, mulberry32(seed * 9973 + 1))
+    // the seed is the reroll: a prompt result is cached by prompt and seed, so a new seed asks
+    // the hub for the next model of the same prompt rather than the one it had before
+    const r = await fromPrompt(src.text, mulberry32(seed * 9973 + 1), seed)
     const { soup, cloud } = surfaceFrom(r.object)
     return { soup, cloud, samples: localSample(soup, cloud, r.flat, count, seed), title: r.title, detail: r.detail, twoSided: !!r.twoSided, flat: r.flat, source: r.source }
   }

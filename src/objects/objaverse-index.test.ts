@@ -1,0 +1,105 @@
+import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { gunzipSync } from 'node:zlib'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { isExplicit, isFanArt } from '../safety/content.ts'
+import { resultPasses } from '../safety/result.ts'
+import {
+  INDEX_DIR,
+  INDEX_FILE,
+  INDEX_URL,
+  glbPath,
+  glbUrl,
+  sketchfabUrl,
+  type Index,
+} from './objaverse-index.ts'
+
+// The index the build wrote. It is committed, so this test reads the real file rather than a
+// fixture, and a build that changed shape would fail here.
+const here = dirname(fileURLToPath(import.meta.url))
+const indexPath = resolve(here, '..', '..', 'public', INDEX_DIR, INDEX_FILE)
+
+// The index is read once. It is a 20,000 row file, and reading it again for every test is
+// most of the time this file spends.
+let cached: Index | null = null
+const readIndex = (): Index => {
+  if (!cached) {
+    cached = JSON.parse(gunzipSync(readFileSync(indexPath)).toString('utf8')) as Index
+  }
+  return cached
+}
+
+describe('the objaverse index file', () => {
+  it('sits at the path the app fetches', () => {
+    expect(INDEX_DIR).toBe('objaverse')
+    expect(INDEX_FILE).toBe('index.json.gz')
+    expect(INDEX_URL).toBe('objaverse/index.json.gz')
+  })
+
+  it('carries the revisions it was read at', () => {
+    const index = readIndex()
+    expect(index.revisions['allenai/objaverse']).toBe('556637099bf4fa79ea7b239d0d9c328b8a2e9ac8')
+    expect(index.revisions['tiange/Cap3D']).toBe('0f05a726ff7eb3db93444a4efc65f0552bce84a4')
+    expect(index.revisions['cindyxl/ObjaversePlusPlus']).toBe('ac892800fd29db09c2b560bdfdd3c57253045836')
+    // every revision is a commit, not a branch
+    for (const sha of Object.values(index.revisions)) expect(sha).toMatch(/^[0-9a-f]{40}$/)
+  })
+
+  it('holds the rows it says it holds', () => {
+    const index = readIndex()
+    expect(index.rows).toBe(index.data.length)
+    expect(index.rows).toBeGreaterThan(0)
+    expect(index.version).toContain('objaverse-')
+  })
+
+  it('gives every row the fields the app reads', () => {
+    const index = readIndex()
+    for (const row of index.data.slice(0, 500)) {
+      expect(row.uid).toMatch(/^[0-9a-zA-Z]{32}$/)
+      expect(row.title.length).toBeGreaterThan(0)
+      expect(row.title.length).toBeLessThanOrEqual(80)
+      expect(row.caption.length).toBeGreaterThan(0)
+      expect(row.chunk).toMatch(/^\d{3}-\d{3}$/)
+      expect(row.author.length).toBeGreaterThan(0)
+      expect(row.licence).toBe('CC BY 4.0')
+    }
+  })
+
+  it('keeps only the rows the app may show', () => {
+    const index = readIndex()
+    // the app's own rule, over every row rather than a slice, because a slice cannot see a
+    // row further down the index. The build and the app have to agree about every row they
+    // both hold, so the rule is the one the app applies.
+    const refused = index.data.filter((row) => !resultPasses(`${row.title} ${row.caption}`))
+    expect(refused.map((r) => r.uid)).toEqual([])
+    // and the fan art and explicit guards, which are part of the same rule
+    for (const row of index.data) {
+      const text = `${row.title} ${row.caption}`
+      expect(isFanArt(text), row.uid).toBe(false)
+      expect(isExplicit(text), row.uid).toBe(false)
+    }
+  })
+
+  it('points at a glb on the hub', () => {
+    const index = readIndex()
+    const row = index.data[0]
+    const path = glbPath(row)
+    expect(path).toBe(`glbs/${row.chunk}/${row.uid}.glb`)
+    const url = glbUrl(row, index.revisions['allenai/objaverse'])
+    expect(url).toBe(
+      `https://huggingface.co/datasets/allenai/objaverse/resolve/${index.revisions['allenai/objaverse']}/glbs/${row.chunk}/${row.uid}.glb`,
+    )
+    expect(sketchfabUrl(row.uid)).toBe(`https://sketchfab.com/3d-models/${row.uid}`)
+  })
+
+  it('has no title that a reader would have to squint at', () => {
+    const index = readIndex()
+    for (const row of index.data.slice(0, 2000)) {
+      // no underscores, no doubled spaces, no leading or trailing space
+      expect(row.title).not.toMatch(/_/)
+      expect(row.title).not.toMatch(/ {2}/)
+      expect(row.title).toBe(row.title.trim())
+    }
+  })
+})

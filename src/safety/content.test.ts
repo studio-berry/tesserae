@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { checkContent, fold, isExplicit, isFanArt, makeGuard } from './content'
+import { resultPasses } from './result'
 
 describe('fold', () => {
   it('folds accents and case to ascii', () => {
@@ -79,6 +80,29 @@ describe('makeGuard', () => {
     const g = makeGuard([], ['fan'], 3)
     expect(g('a fan')).toBe(true)
     expect(g('fantasy')).toBe(false)
+  })
+})
+
+describe('the rule for a result', () => {
+  it('refuses a whole word', () => {
+    expect(resultPasses('a model with a cock')).toBe(false)
+    expect(resultPasses('ass')).toBe(false)
+  })
+
+  it('keeps a word that merely holds the letters of a blocked one', () => {
+    // these are the false positives the run scan caused: a title is words, not a grid of
+    // letters, so the letters inside a word are not a word
+    expect(resultPasses('Assault rifle (low poly)')).toBe(true)
+    expect(resultPasses('Seabass')).toBe(true)
+    expect(resultPasses('Bookshelf a wooden bookshelf with books on it')).toBe(true)
+    expect(resultPasses('Tropical 4 a pixel art of a green palm leaf')).toBe(true)
+    expect(resultPasses('Auckland')).toBe(true)
+    expect(resultPasses('Cockatrice statue')).toBe(true)
+  })
+
+  it('still refuses fan art and explicit content', () => {
+    expect(resultPasses('Pikachu figure')).toBe(false)
+    expect(resultPasses('a nsfw asset')).toBe(false)
   })
 })
 

@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import type { Theme } from '../engine/core'
 import { infoStore } from '../engine/info'
 import type { Shape } from '../objects'
-import { creditParts } from '../objects/credit'
+import { scanCredit } from '../objects/credit'
 
 const KIND = { library: 'library', text: 'type', file: 'model', prompt: 'prompt' }
 const STEPS = 11
@@ -34,8 +34,11 @@ export function Hud({ shape, status, error, theme, ramp, onRetry }: Props) {
   const meta = shape ? [shape.detail, shape.triangles ? `${shape.triangles.toLocaleString()} triangles` : ''].filter(Boolean).join(' · ') : ''
   // the engine marks work in progress with a trailing ellipsis
   const busy = !error && status.endsWith('…')
-  // a searched model or drawing carries its credit, so the licence asks are answered on screen
-  const credit = shape?.source ? creditParts(shape.source) : null
+  // a searched model or drawing carries its credit, so the licence asks are answered on screen.
+  // The words are scanned, because the author comes from a third party and a name can hold a
+  // word the prompt box would refuse. The link is not, because a scan replaces a letter in
+  // place and a scanned link points at nothing.
+  const credit = shape?.source ? scanCredit(shape.source, glyphs.join('')) : null
 
   return (
     <section className="hud" aria-live="polite" data-theme={theme}>
@@ -45,9 +48,9 @@ export function Hud({ shape, status, error, theme, ramp, onRetry }: Props) {
       </div>
       <h1>{shape?.title ?? '…'}</h1>
       {meta && <p className="meta">{meta}</p>}
-      {credit && (
+      {credit && credit.words && (
         <p className="credit">
-          <span>{credit.author} · {credit.licence} · {credit.note} · </span>
+          <span>{credit.words} · </span>
           <a href={credit.url} target="_blank" rel="noreferrer noopener">{credit.url}</a>
         </p>
       )}
