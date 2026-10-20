@@ -233,8 +233,8 @@ The correction goes on the model's meshes, not on its root, because the triangle
 in the root's own space: the root's transform is multiplied out, so a rotation on the root
 would be cancelled before it reached the samples.
 
-A check over sixty models taken from the collection the app would ship turned forty-five of
-them, and every one of the forty-five stood upright afterwards. The fifteen that were left
+A check over sixty models taken from the collection the app would ship turned forty-six of
+them, and every one of the forty-six stood upright afterwards. The fourteen that were left
 alone were already standing.
 
 

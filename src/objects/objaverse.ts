@@ -25,13 +25,6 @@ export type ObjaverseOptions = {
   rng?: Rng
 }
 
-// The revision the index was built from, so the GLB is fetched from the same snapshot the
-// index describes. It travels inside the index file.
-const revisionOf = (index: { revisions?: Record<string, string> }) => {
-  const r = index.revisions ?? {}
-  return r['allenai/objaverse'] ?? r.objaverse ?? 'main'
-}
-
 // Finds a model in the index and draws it.
 //
 // Every step can fail, and every failure means the chain moves on: no index, no match, a model

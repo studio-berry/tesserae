@@ -4,6 +4,7 @@ import { gunzipSync } from 'node:zlib'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { isExplicit, isFanArt } from '../safety/content.ts'
+import { resultPasses } from '../safety/result.ts'
 import {
   INDEX_DIR,
   INDEX_FILE,
@@ -67,9 +68,13 @@ describe('the objaverse index file', () => {
 
   it('keeps only the rows the app may show', () => {
     const index = readIndex()
-    // the build and the app read a title the same way, so the index holds no fan art and
-    // nothing explicit
-    for (const row of index.data.slice(0, 2000)) {
+    // the app's own rule, over every row rather than a slice, because a slice cannot see a
+    // row further down the index. The build and the app have to agree about every row they
+    // both hold, so the rule is the one the app applies.
+    const refused = index.data.filter((row) => !resultPasses(`${row.title} ${row.caption}`))
+    expect(refused.map((r) => r.uid)).toEqual([])
+    // and the fan art and explicit guards, which are part of the same rule
+    for (const row of index.data) {
       const text = `${row.title} ${row.caption}`
       expect(isFanArt(text), row.uid).toBe(false)
       expect(isExplicit(text), row.uid).toBe(false)

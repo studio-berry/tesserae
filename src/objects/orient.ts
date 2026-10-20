@@ -79,9 +79,14 @@ export const principalAxes = (positions: ArrayLike<number>, centre: THREE.Vector
       m[2][0] * v.x + m[2][1] * v.y + m[2][2] * v.z,
     )
 
-  // the largest eigenvector, found from a start that is not along any axis
-  const eigen = (m: number[][]) => {
-    let v = new THREE.Vector3(0.577, 0.577, 0.577)
+  // The largest eigenvector, found by power iteration.
+  //
+  // The start is a vector that is not along any axis and not along a diagonal, because a
+  // symmetric model has an equal spread in every direction, and a start that happened to lie
+  // along one of its own axes would converge on that axis rather than on the largest one. The
+  // start is therefore the direction of the model's own spread, which no axis can match.
+  const eigen = (m: number[][], start: THREE.Vector3) => {
+    let v = start.clone().normalize()
     for (let i = 0; i < 64; i++) {
       const w = apply(m, v)
       if (w.lengthSq() < 1e-20) break
@@ -91,13 +96,24 @@ export const principalAxes = (positions: ArrayLike<number>, centre: THREE.Vector
     return { vector: v, value: lambda }
   }
 
-  const first = eigen(c)
+  // the direction the model is longest along, which is where the iteration starts
+  const spread = (m: number[][]) => {
+    const d = [m[0][0] - m[1][1], m[0][0] - m[2][2], m[1][1] - m[2][2]]
+    const worst = Math.min(...d)
+    // the axis with the least spread is the one the model is longest along, so the start
+    // leans away from it
+    if (worst === d[0]) return new THREE.Vector3(0, 1, 1)
+    if (worst === d[1]) return new THREE.Vector3(1, 0, 1)
+    return new THREE.Vector3(1, 1, 0)
+  }
+
+  const first = eigen(c, spread(c))
   const long = first.vector
   // the matrix with the first direction removed
   const deflated = c.map((row, i) =>
     row.map((v, j) => v - first.value * long.getComponent(i) * long.getComponent(j)),
   )
-  const second = eigen(deflated)
+  const second = eigen(deflated, spread(deflated))
   const mid = second.vector.clone()
   // the third is what is left, and it has to be perpendicular to the first two
   const short = new THREE.Vector3().crossVectors(long, mid).normalize()

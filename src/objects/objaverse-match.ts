@@ -1,4 +1,4 @@
-import { indexTokens, rowTokens, type Index, type IndexRow } from './objaverse-index'
+import { indexTokens, rowTokens, type IndexRow } from './objaverse-index'
 
 // The matcher: it decides which row of the index answers a prompt.
 //
@@ -57,15 +57,3 @@ export const pickRow = (matches: Match[], step: number): IndexRow | null => {
   if (!matches.length) return null
   return matches[((step % matches.length) + matches.length) % matches.length].row
 }
-
-// The index as it is held in memory: the rows, and the revision each dataset was read at.
-export type LoadedIndex = {
-  index: Index
-  // the rows that the index holds, already in build order
-  rows: IndexRow[]
-}
-
-export const loadIndex = (index: Index): LoadedIndex => ({
-  index,
-  rows: index.data ?? [],
-})
