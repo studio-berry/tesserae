@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { creditText, scanCredit, type Credit } from '../objects/credit'
+import { scanCredit, type Credit } from '../objects/credit'
 import { scanLine, scanWords } from '../safety'
 
 export type ExportItem = { kind: 'text'; text: string } | { kind: 'png'; url: string }
