@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { R, mulberry32 } from '../engine/core'
-import { glyphSizeFor, lru, prepare } from './index'
+import { N, R, mulberry32 } from '../engine/core'
+import { GLYPH_FILL, GLYPH_PITCH, glyphSizeFor, lru, prepare, zoomCount } from './index'
 import { LIBRARY } from './library'
 import { sampleSoup } from './sample'
 import { hasSurface, surfaceFrom } from './soup'
@@ -74,14 +74,42 @@ describe('hasSurface', () => {
 })
 
 describe('glyphSizeFor', () => {
-  it('sizes the glyph to the tightest surface at that density', () => {
+  it('covers the pitch of the tightest surface, so neighbouring glyphs meet', () => {
     const tightest = Math.min(...objects.map((o) => o.sample!.spacing))
-    expect(glyphSizeFor(COUNT)).toBeGreaterThanOrEqual(tightest * 1.1)
-    expect(glyphSizeFor(COUNT)).toBeLessThanOrEqual(tightest * 1.2)
+    expect(glyphSizeFor(COUNT)).toBeGreaterThanOrEqual(tightest * 1.9)
+    expect(glyphSizeFor(COUNT)).toBeLessThanOrEqual(tightest * 2.1)
   })
 
   it('depends on density alone', () => {
-    for (const n of [1500, 6000, 12000]) expect(glyphSizeFor(n) * Math.sqrt(n)).toBeCloseTo(4.8, 6)
+    for (const n of [1500, 6000, 12000]) expect(glyphSizeFor(n) * Math.sqrt(n)).toBeCloseTo(GLYPH_PITCH * GLYPH_FILL, 6)
+  })
+})
+
+describe('zoomCount', () => {
+  it('returns the base count at 1x', () => {
+    expect(zoomCount(6000, 1)).toBe(6000)
+  })
+
+  it('caps at the pool the stage draws with', () => {
+    expect(zoomCount(6000, 2.6)).toBe(N)
+  })
+
+  it('never drops below the base, even zoomed out', () => {
+    expect(zoomCount(6000, 0.5)).toBe(6000)
+  })
+
+  it('moves in quarter-density steps, so a pinch costs a handful of samples', () => {
+    expect(zoomCount(6000, 1.2) % 1500).toBe(0)
+  })
+
+  it('rises with the zoom', () => {
+    let last = 0
+    for (const z of [0.5, 0.8, 1, 1.2, 1.4, 1.8, 2.2, 2.6]) {
+      const n = zoomCount(6000, z)
+      expect(n).toBeGreaterThanOrEqual(last)
+      last = n
+    }
+    expect(last).toBeGreaterThan(zoomCount(6000, 1))
   })
 })
 
@@ -155,6 +183,23 @@ describe('prepare', () => {
     expect(b.count).toBe(60)
     expect(b.pos).not.toEqual(a.pos)
     expect(b.occluder).not.toBe(a.occluder)
+  })
+
+  it('keeps one origin across counts, so the stage can tell a refine from a new object', async () => {
+    const a = await prepare({ kind: 'library', id: 'teapot' }, 120, 0)
+    const b = await prepare({ kind: 'library', id: 'teapot' }, 240, 0)
+    expect(b.origin).toBe(a.origin)
+    expect(b.key).not.toBe(a.key)
+    expect(b.glyphSize).toBeLessThan(a.glyphSize)
+  })
+
+  it('hands back the same arrays at the zoom count, since the cache still holds them', async () => {
+    const n = zoomCount(6000, 2.6)
+    const a = await prepare({ kind: 'library', id: 'donut' }, n, 0)
+    const b = await prepare({ kind: 'library', id: 'donut' }, n, 0)
+    expect(a.count).toBe(N)
+    expect(b.pos).toBe(a.pos)
+    expect(b.origin).toBe(a.origin)
   })
 
   it('takes a dropped model on the main thread', async () => {

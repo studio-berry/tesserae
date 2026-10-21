@@ -28,6 +28,7 @@ const base = (over: Partial<SnapshotInput> = {}): SnapshotInput => ({
   height: 400,
   twoSided: false,
   sizeMul: 1,
+  modelScale: 1,
   light: new THREE.Vector3(0, 0, 1),
   ramp: RAMP,
   cols: 20,

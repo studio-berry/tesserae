@@ -8,13 +8,13 @@ describe('readUrl', () => {
     const s = readUrl('', D, 'dark')
     expect(s.source).toEqual({ kind: 'library', id: 'teapot' })
     expect(s.density).toBe(D)
-    expect([s.mode, s.theme, s.tint, s.charset]).toEqual(['letters', 'dark', 'ivory', 'letters'])
+    expect([s.mode, s.theme, s.palette, s.charset]).toEqual(['letters', 'dark', null, 'letters'])
   })
 
   it('reads the source, density and styling out of a shared link', () => {
     const s = readUrl('?o=knot&mode=grid&theme=light&glyphs=classic&seed=3&n=9000&ink=jade', D, 'dark')
     expect(s.source).toEqual({ kind: 'library', id: 'knot' })
-    expect([s.mode, s.theme, s.charset, s.seed, s.density, s.tint]).toEqual(['grid', 'light', 'classic', 3, 9000, 'jade'])
+    expect([s.mode, s.theme, s.charset, s.seed, s.density, s.palette]).toEqual(['grid', 'light', 'classic', 3, 9000, 'jade'])
     expect(s.text).toBe('ascii')
   })
 
@@ -24,10 +24,21 @@ describe('readUrl', () => {
     expect(readUrl('?text=hello', D, 'dark').text).toBe('hello')
   })
 
-  it('ignores an unknown object, mode, glyph set or tint rather than rendering nothing', () => {
+  it('ignores an unknown object, mode, glyph set or ink rather than rendering nothing', () => {
     const s = readUrl('?o=nosuch&mode=wire&glyphs=runes&ink=chartreuse&theme=sepia', D, 'light')
     expect(s.source).toEqual({ kind: 'library', id: 'teapot' })
-    expect([s.mode, s.charset, s.tint, s.theme]).toEqual(['letters', 'letters', 'ivory', 'light'])
+    expect([s.mode, s.charset, s.palette, s.theme]).toEqual(['letters', 'letters', null, 'light'])
+  })
+
+  it('leaves the palette to the design when the link names no ink, or one it does not know', () => {
+    expect(readUrl('?o=teapot', D, 'dark').palette).toBeNull()
+    expect(readUrl('?o=teapot&ink=', D, 'dark').palette).toBeNull()
+    expect(readUrl('?o=teapot&ink=chartreuse', D, 'dark').palette).toBeNull()
+  })
+
+  it('reads a named palette, and the object\'s own colours, out of the link', () => {
+    expect(readUrl('?o=teapot&ink=jade', D, 'dark').palette).toBe('jade')
+    expect(readUrl('?o=teapot&ink=source', D, 'dark').palette).toBe('source')
   })
 
   it('clamps the density into the range the slider offers', () => {
@@ -48,13 +59,21 @@ describe('writeUrl', () => {
       const s = readUrl(search, D, 'dark')
       const again = readUrl(writeUrl(s, D), D, 'dark')
       expect(again.source).toEqual(s.source)
-      expect([again.mode, again.tint, again.charset, again.density, again.seed]).toEqual([s.mode, s.tint, s.charset, s.density, s.seed])
+      expect([again.mode, again.palette, again.charset, again.density, again.seed]).toEqual([s.mode, s.palette, s.charset, s.density, s.seed])
     }
   })
 
   it('leaves the defaults out, so a plain link stays plain', () => {
     expect(writeUrl(readUrl('', D, 'dark'), D)).toBe('?o=teapot&theme=dark')
     expect(writeUrl(readUrl('?o=donut&n=9000&ink=jade', D, 'dark'), D)).toBe('?o=donut&n=9000&theme=dark&ink=jade')
+  })
+
+  it('keeps an explicit palette in the link, even the first token, so the choice survives', () => {
+    // A knot's own palette is celadon, so an absent ink would bring celadon back; a sharer who
+    // picked porcelain has to keep porcelain or the link shows a different picture.
+    const s = { ...readUrl('?o=knot', D, 'dark'), palette: 'ivory' as const }
+    expect(writeUrl(s, D)).toContain('ink=ivory')
+    expect(readUrl(writeUrl(s, D), D, 'dark').palette).toBe('ivory')
   })
 
   it('encodes a prompt so the link can be pasted anywhere', () => {

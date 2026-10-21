@@ -274,7 +274,7 @@ describe('the credit of a searched model', () => {
     // the caption shows the author, the licence, the note and a link to the source
     const html = renderToStaticMarkup(createElement(Hud, {
       shape: {
-        key: 'k', kind: 'prompt', title: result.title, detail: result.detail, twoSided: true,
+        key: 'k', origin: 'test', kind: 'prompt', title: result.title, detail: result.detail, twoSided: true,
         occluder: null, triangles: 3, across: 1, up: 1, glyphSize: 1, pose: 'spin', flat: false,
         pos: new Float32Array(0), nrm: new Float32Array(0), count: 0, spacing: 1, col: null,
         source: result.source,

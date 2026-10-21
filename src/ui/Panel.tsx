@@ -1,4 +1,4 @@
-import { TINTS, Theme, TintId } from '../engine/core'
+import { PALETTES, Theme, TintId, paletteInk } from '../engine/core'
 import { CHARSETS, CharsetId } from '../engine/glyphs'
 
 type Props = {
@@ -6,7 +6,7 @@ type Props = {
   theme: Theme
   charset: CharsetId; setCharset: (c: CharsetId) => void
   custom: string; setCustom: (s: string) => void
-  tint: TintId; setTint: (t: TintId) => void; hasColor: boolean
+  palette: TintId; setPalette: (t: TintId) => void; hasColor: boolean
   density: number; setDensity: (n: number) => void
   spin: boolean; setSpin: (b: boolean) => void
   surprise?: boolean; setSurprise?: (b: boolean) => void
@@ -31,16 +31,16 @@ export function Panel(p: Props) {
         <input className="field" value={p.custom} onChange={(e) => p.setCustom(e.target.value)} placeholder="type your own characters" maxLength={96} spellCheck={false} />
       )}
       <div className="row">
-        <span className="label">ink</span>
-        <div className="swatches">
-          {TINTS.map((t) => (
-            <button key={t.id} type="button" title={t.id} aria-label={t.id} aria-pressed={p.tint === t.id} className={p.tint === t.id ? 'sw on' : 'sw'} onClick={() => p.setTint(t.id)}>
-              <i style={{ background: t[p.theme] }} />
+        <span className="label">palette</span>
+        <div className="chips">
+          {PALETTES.map((t) => (
+            <button key={t.id} type="button" title={t.name} aria-pressed={p.palette === t.id} className={p.palette === t.id ? 'chip on' : 'chip'} onClick={() => p.setPalette(t.id)}>
+              <i style={{ background: paletteInk(t.id, p.theme) }} />{t.name}
             </button>
           ))}
           {p.hasColor && (
-            <button type="button" title="the object's own colours" aria-label="source colours" aria-pressed={p.tint === 'source'} className={p.tint === 'source' ? 'sw on' : 'sw'} onClick={() => p.setTint('source')}>
-              <i className="src" />
+            <button type="button" title="the object's own colours" aria-pressed={p.palette === 'source'} className={p.palette === 'source' ? 'chip on' : 'chip'} onClick={() => p.setPalette('source')}>
+              <i className="src" />source
             </button>
           )}
         </div>

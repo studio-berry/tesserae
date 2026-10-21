@@ -4,12 +4,12 @@ import { ParametricGeometry } from 'three/examples/jsm/geometries/ParametricGeom
 import { TeapotGeometry } from 'three/examples/jsm/geometries/TeapotGeometry.js'
 import { SimplexNoise } from 'three/examples/jsm/math/SimplexNoise.js'
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { PALETTE, Rng } from '../engine/core'
+import { PALETTE, PaletteId, Rng } from '../engine/core'
 
 // Built-in objects. Each takes a seeded rng: seed 0 gives the canonical form, any other seed a
 // variation (a different knot, solid, shell or rock), which is what "reroll" asks for.
 export type Built = { object: THREE.Object3D; title: string; detail: string; twoSided?: boolean }
-export type LibItem = { id: string; name: string; build: (rng: Rng, seed: number) => Built }
+export type LibItem = { id: string; name: string; palette: PaletteId; build: (rng: Rng, seed: number) => Built }
 
 const mesh = (g: THREE.BufferGeometry, color?: string) => new THREE.Mesh(g, new THREE.MeshBasicMaterial(color ? { color } : {}))
 const pick = <T,>(rng: Rng, a: readonly T[]) => a[Math.floor(rng() * a.length) % a.length]
@@ -33,7 +33,7 @@ type SS = [number, number, number, number]
 const RIM: SS[] = [[6, 1, 1, 1], [5, 0.3, 1.7, 1.7], [7, 0.2, 1.7, 1.7], [3, 4.5, 10, 10], [4, 12, 15, 15], [8, 1.5, 4, 8], [5, 1, 1, 1], [6, 0.6, 2, 2], [9, 2, 6, 6], [4, 0.4, 1, 3], [12, 3, 20, 20]]
 const PROFILE: SS[] = [[0, 1, 1, 1], [0, 1, 1, 1], [4, 2, 4, 4], [6, 3, 6, 6], [4, 1.6, 3, 3], [8, 4, 6, 6], [3, 3, 5, 5]]
 const supershape: LibItem = {
-  id: 'supershape', name: 'supershape',
+  id: 'supershape', name: 'supershape', palette: 'violet',
   build: (rng, seed) => {
     const jit = (p: SS): SS => [p[0], p[1] * (0.8 + rng() * 0.4), p[2] * (0.8 + rng() * 0.4), p[3] * (0.8 + rng() * 0.4)]
     const A: SS = seed ? jit(pick(rng, RIM)) : [8, 1.5, 4, 8]
@@ -50,7 +50,7 @@ const supershape: LibItem = {
 }
 
 const donut: LibItem = {
-  id: 'donut', name: 'donut',
+  id: 'donut', name: 'donut', palette: 'ember',
   build: (rng, seed) => {
     const r = seed ? 0.25 + rng() * 0.35 : 0.45
     return { object: mesh(new THREE.TorusGeometry(1, r, 72, 180)), title: 'Donut', detail: `torus · R 1 · r ${f2(r)}` }
@@ -58,7 +58,7 @@ const donut: LibItem = {
 }
 
 const teapot: LibItem = {
-  id: 'teapot', name: 'teapot',
+  id: 'teapot', name: 'teapot', palette: 'ivory',
   build: (_rng, seed) => {
     const lid = seed % 2 === 0
     const g = new TeapotGeometry(1, 18, true, lid, true, true, true)
@@ -68,7 +68,7 @@ const teapot: LibItem = {
 
 const KNOTS: [number, number][] = [[2, 3], [3, 5], [2, 5], [3, 7], [3, 4], [2, 7], [4, 5], [5, 6], [3, 8]]
 const knot: LibItem = {
-  id: 'knot', name: 'knot',
+  id: 'knot', name: 'knot', palette: 'jade',
   build: (rng, seed) => {
     const [p, q] = seed ? pick(rng, KNOTS.slice(1)) : KNOTS[0]
     const tube = 0.5 / Math.sqrt(Math.max(p, q))
@@ -87,7 +87,7 @@ const SOLIDS = [
 // flat faces each take one glyph density, so the solid reads like cut stone; the edges are
 // drawn as fine rods so the facets stay separated
 const crystal: LibItem = {
-  id: 'crystal', name: 'crystal',
+  id: 'crystal', name: 'crystal', palette: 'blue',
   build: (rng, seed) => {
     const s = seed ? pick(rng, SOLIDS.slice(1)) : SOLIDS[0]
     const g = s.make().toNonIndexed()
@@ -104,7 +104,7 @@ const crystal: LibItem = {
 
 // a logarithmic seashell: the tube grows exponentially as it winds
 const shell: LibItem = {
-  id: 'shell', name: 'shell',
+  id: 'shell', name: 'shell', palette: 'ivory',
   build: (rng, seed) => {
     const turns = seed ? 2.2 + rng() * 1.4 : 3, flare = seed ? 5 + rng() * 2.5 : 6
     const g = new ParametricGeometry((u, v, t) => {
@@ -117,7 +117,7 @@ const shell: LibItem = {
 }
 
 const kleinBottle: LibItem = {
-  id: 'klein', name: 'klein',
+  id: 'klein', name: 'klein', palette: 'violet',
   build: () => {
     const g = new ParametricGeometry(klein, 160, 160)
     g.rotateX(-Math.PI / 2)
@@ -135,7 +135,7 @@ class Helix extends THREE.Curve<THREE.Vector3> {
 }
 const BASES = { A: PALETTE.baseA, T: PALETTE.baseT, C: PALETTE.baseC, G: PALETTE.baseG }
 const helix: LibItem = {
-  id: 'helix', name: 'helix',
+  id: 'helix', name: 'helix', palette: 'jade',
   build: (rng, seed) => {
     const turns = seed ? 1.6 + rng() * 1.2 : 2.2, H = 4.4, Rr = 0.9, groove = 0.78 * Math.PI
     const group = new THREE.Group()
@@ -155,7 +155,7 @@ const helix: LibItem = {
 }
 
 const asteroid: LibItem = {
-  id: 'asteroid', name: 'asteroid',
+  id: 'asteroid', name: 'asteroid', palette: 'ember',
   build: (rng, seed) => {
     const noise = new SimplexNoise({ random: rng })
     const fbm = (x: number, y: number, z: number) => {

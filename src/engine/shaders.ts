@@ -46,6 +46,7 @@ uniform float uShade;        // 0 = flat, 1 = fully lit by the light
 uniform float uBackFade;     // fade dots whose surface faces away (used when there is no occluder)
 uniform float uTwoSided;     // light the back face too, for open surfaces
 uniform float uSizeMul;
+uniform float uModelScale;   // the model's own scale, so object glyphs grow while dust keeps its size
 uniform float uMode;
 uniform vec4 uScan;          // xyz direction, w start time, negative when nothing is scanning
 uniform vec4 uRipples[4];    // xyz centre, w birth time
@@ -123,7 +124,7 @@ void main() {
 
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = asz * (1.0 + glow * 0.25) * uSizeMul * uScale / -mv.z;
+  gl_PointSize = asz * (1.0 + glow * 0.25) * uSizeMul * mix(1.0, uModelScale, has) * uScale / -mv.z;
 
   vec3 n = normalize(normalMatrix * an + vec3(0.0, 0.0, 1e-5));
   vec3 v = normalize(-mv.xyz);
@@ -214,6 +215,7 @@ attribute float aInk;
 attribute float aSeed;
 uniform float uTime;
 uniform float uScale;
+uniform float uModelScale;
 varying float vInk;
 varying float vSeed;
 void main() {
@@ -223,7 +225,7 @@ void main() {
   p.z += cos(uTime * 0.31 + aSeed * 4.712) * 0.012;
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = (0.018 + aSeed * 0.006) * uScale / -mv.z;
+  gl_PointSize = (0.018 + aSeed * 0.006) * uModelScale * uScale / -mv.z;
   vInk = aInk;
   vSeed = aSeed;
 }`
