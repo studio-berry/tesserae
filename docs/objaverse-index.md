@@ -181,8 +181,13 @@ npm run index:objaverse:report   # prints the funnel and the sizes, writes nothi
 ```
 
 The build reads the pinned commits and checks the sha256 of each download, so the same inputs
-give the same file. Two builds from the same data were byte identical, sha256
-`e9bf68e30472e66fa0a711814f2b6a4cee0a3c39860b0732a9e9306c7412fd39`.
+give the same file. The index this branch ships is sha256
+`716b17687da9a8f435f5378257b906b8bbbf697afb5064bfd8b5ad8f30277ad1`, and a rebuild from the same
+data gives that file byte for byte.
+
+The hash belongs to the filters as well as the data, because the filters decide which rows
+survive. A later change to the content rule or to the denylist changes the file, and the hash
+with it, so the hash is checked against the filters and not only against the pinned commits.
 
 The build is a stream rather than a join. The cap3d csv holds 1.6 million captions, which does
 not fit in memory as a map, so the metadata is filtered first and the csv is then walked once,
