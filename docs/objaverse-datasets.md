@@ -433,6 +433,12 @@ say.
 Everything was measured from the hub at the revisions named above. Scratch files went to
 `$LOCALAPPDATA/Temp/hf-eval`, never into the repo.
 
+The api calls below are the commands. The rest of this section is the method rather than a
+script: the range readers that walked the parquet footers and the tar headers, the fixed-seed
+sampler and the scene test were run from scratch files that were not committed, so they are
+written up here to be read rather than to be rerun. A reader who needs the numbers again has
+to rebuild those tools from the description.
+
 The hub api and the file tree, which give the row counts and the licences:
 
 ```sh
