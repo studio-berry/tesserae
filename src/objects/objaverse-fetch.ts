@@ -41,7 +41,13 @@ export const objaverseIndex = (): Promise<Index | null> => {
       if (!res.ok) return null
       const text = await asText(res)
       const parsed = JSON.parse(text) as Index
-      return Array.isArray(parsed.data) ? parsed : null
+      // The version is read here rather than only carried about: an index that does not name the
+      // build that wrote it, or whose row count does not match what it holds, is not a build the
+      // app can trust to be whole, so it is dropped and the backend is skipped. A partial body
+      // from a cache is the failure this catches.
+      if (typeof parsed.version !== 'string' || !parsed.version) return null
+      if (!Array.isArray(parsed.data)) return null
+      return parsed.rows === parsed.data.length ? parsed : null
     })
     .catch(() => null)
   return held
