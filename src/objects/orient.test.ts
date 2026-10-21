@@ -167,6 +167,49 @@ describe('applyOrientation', () => {
     expect((y1 - y0) / (x1 - x0)).toBeGreaterThan(2)
   })
 
+  it('reaches the geometry at any depth of the model', () => {
+    // The same correction as the test above, but through groups instead of straight onto the
+    // mesh, because that is how models in the index are built: in a sample of sixteen, not one
+    // mesh was a direct child of the scene root.
+    //
+    // A correction premultiplied onto every descendant is applied once per level, so a mesh two
+    // groups down came out turned three times over. The box was only right by luck at one depth
+    // and wrong at the others, so all of them are checked rather than one.
+    for (const depth of [1, 2, 3]) {
+      const g = new THREE.BoxGeometry(1, 3, 1)
+      g.applyQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2))
+      const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial())
+      const root = new THREE.Group()
+      let parent: THREE.Object3D = root
+      for (let i = 0; i < depth; i++) {
+        const inner = new THREE.Group()
+        parent.add(inner)
+        parent = inner
+      }
+      parent.add(mesh)
+      root.updateMatrixWorld(true)
+
+      const attr = g.getAttribute('position')
+      const pts: number[] = []
+      for (let i = 0; i < attr.count; i++) pts.push(attr.getX(i), attr.getY(i), attr.getZ(i))
+      const o = orient(new Float32Array(pts))
+      expect(o.confidence, `depth ${depth}`).toBeGreaterThan(0)
+      applyOrientation(root, o)
+
+      const s = surfaceFrom(root)
+      const pos = s.soup!.pos
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+      for (let i = 0; i < pos.length; i += 3) {
+        if (pos[i] < x0) x0 = pos[i]
+        if (pos[i] > x1) x1 = pos[i]
+        if (pos[i + 1] < y0) y0 = pos[i + 1]
+        if (pos[i + 1] > y1) y1 = pos[i + 1]
+      }
+      // three long and one wide before the turn, so standing it up makes it taller than wide
+      expect((y1 - y0) / (x1 - x0), `depth ${depth}`).toBeGreaterThan(2)
+    }
+  })
+
   it('leaves a model alone when there is nothing to correct', () => {
     const g = new THREE.BoxGeometry(1, 3, 1)
     const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial())
