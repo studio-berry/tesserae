@@ -11,7 +11,7 @@ import { defaultDensity, MODES, readUrl, writeUrl } from './engine/url'
 import { prepare, Shape, Source } from './objects'
 import { LIBRARY } from './objects/library'
 import { ACCEPT } from './objects/formats'
-import { checkTyped, maskName } from './safety'
+import { checkTyped, scanWords } from './safety'
 import { creditText } from './objects/credit'
 import { Export, ExportItem, exportText } from './ui/Export'
 import { Coach, Frame } from './ui/Frame'
@@ -184,7 +184,14 @@ export default function App() {
     if (surprise) setCharset(Object.keys(CHARSETS)[Math.floor(Math.random() * Object.keys(CHARSETS).length)] as CharsetId)
   }, [surprise])
 
-  const caption = `${shape?.title ?? 'gen-ascii'} · ${mode} · ${(density / 1000).toFixed(1)}k · ${charset}`
+  // The caption is printed in three places: the strip under the png, the export dialog and the
+  // header of a text export. The readme promises every exported line is scanned for accidental
+  // words, and only the text export was scanning it, so it is scanned once here and all three
+  // read the same string rather than one of them printing it raw.
+  const caption = scanWords(
+    `${shape?.title ?? 'gen-ascii'} · ${mode} · ${(density / 1000).toFixed(1)}k · ${charset}`,
+    ramps.full,
+  )
   // a searched model or drawing carries its credit, and the licence asks for it in the export
   const credit = shape?.source ?? null
   const copy = useCallback(() => {
@@ -316,7 +323,7 @@ export default function App() {
       <Hud
         shape={shape} theme={theme} ramp={ramp} onRetry={() => prepare(source, density, seed).then(setShape).catch((err: Error) => setError(err.message))}
         status={busy ? status || (source.kind === 'prompt' ? 'working out what that looks like…' : 'sampling surface…') : status || HINT}
-        error={source.kind === 'file' ? maskName(error) : error}
+        error={error}
       />
 
       <Panel
