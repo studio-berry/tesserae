@@ -118,8 +118,9 @@ the quality scores** come from ODC-By v1.0 datasets. All three are credited in t
 ## The content policy
 
 The build drops a row when the app would refuse to show it, and it uses the app's own guards
-rather than a second copy of the lists. `scripts/objaverse-filters.ts` imports `isFanArt` and
-`isExplicit` from `src/safety/content.ts`, and the four word lists in the python prototype
+rather than a second copy of the lists. `scripts/objaverse-filters.ts` imports `isFanArt` from
+`src/safety/content.ts` and `resultPasses` from `src/safety/result.ts`, the rule the app applies to
+a searched result, and the four word lists in the python prototype
 were checked against the app's and match exactly, entry for entry.
 
 The rules, and why each one is there:
@@ -138,8 +139,10 @@ The rules, and why each one is there:
 - **Not age-restricted.** The `isAgeRestricted` flag in the metadata.
 - **A row must have an author**, so every result can be credited.
 
-The content is read over the title, the tags and the caption together, because a name can be
-clean while a tag is not.
+The fan art guard is read over the title, the tags and the caption together, because a name
+can be clean while a tag is not. The content rule reads the title and the caption, which is
+what the app is given: an index row carries no tags, so a tag the app never sees is not one it
+can refuse.
 
 The word lists cannot catch every franchise, and the build does not claim they do. The rows
 that survive were read by eye during the prototype's report, which is why the lists are as

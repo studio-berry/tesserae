@@ -52,6 +52,9 @@ because it is what the app serves and a rebuild reproduces it byte for byte.
 
 The Hub is a free dependency, like Wikimedia Commons, and needs no key. The GLB a row points at
 is fetched from the Hub by its uid, and the hub serves it with `access-control-allow-origin: *`.
+A request that fails there is retried and then tried at `hf-mirror.com`, a community mirror of
+the Hub rather than a service of it, which as things stand redirects back to the Hub; the app
+fetches from no other host.
 
 
 ## Using it

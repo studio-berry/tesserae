@@ -32,9 +32,11 @@ export const HUB_BASE = 'https://huggingface.co/datasets/allenai/objaverse/resol
 
 export const glbUrl = (row: IndexRow, revision: string) => `${HUB_BASE}/${revision}/${glbPath(row)}`
 
-// The Hub serves the same file from more than one address, so a request that fails at one of
-// them can be tried at the other. The mirror is the Hub's own cdn, which carries the same bytes
-// and the same access-control headers.
+// A request that fails at one address is tried at another. The second is not a second Hub
+// address: hf-mirror.com is a community mirror of the Hub rather than a service of it, and it
+// currently answers a model request with a redirect back to huggingface.co, so it costs a round
+// trip and buys nothing until it stops doing that. The bytes are not checked against a digest
+// on the way in, the way the build's downloads are.
 export const HUB_MIRRORS = [
   'https://huggingface.co/datasets/allenai/objaverse/resolve',
   'https://hf-mirror.com/datasets/allenai/objaverse/resolve',
