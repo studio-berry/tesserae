@@ -8,6 +8,7 @@ import { Hud } from '../ui/Hud'
 import { creditText } from './credit'
 import { exportText } from '../ui/Export'
 import { fromPrompt, normalisePrompt } from './prompt'
+import { resultPasses } from '../safety/result'
 import { svgObject } from './svg'
 
 type Reply = { json?: unknown; text?: string; buffer?: ArrayBuffer; status?: number }
@@ -309,11 +310,23 @@ describe('the credit of a searched model', () => {
   })
 
   it('scans the credit, because the author comes from a third party', () => {
-    // an author whose name holds a word the prompt box would refuse
-    const line = creditText({ author: 'assg709', licence: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/abc' }, RAMP)
-    expect(line).not.toContain('assg709')
+    // A name that really is a blocked word is repaired, because the word would otherwise be
+    // shown in the caption.
+    const line = creditText({ author: 'ass', licence: 'CC BY 4.0', url: 'https://sketchfab.com/3d-models/abc' }, RAMP)
+    expect(line).not.toContain('ass ·')
     // the link is still there, because a repaired link points at nothing
     expect(line).toContain('https://sketchfab.com/3d-models/abc')
+  })
+
+  it('keeps a name that merely contains a blocked word, because the licence asks for the name', () => {
+    // The credit and the title are held to the same rule, the whole-token one. The rule lets a
+    // fish called Seabass through, so the credit must show it rather than corrupt it: CC BY asks
+    // for the author, and a mangled name is the wrong author.
+    for (const author of ['Seabass Studio', 'Compass Collective', 'Classic Models', 'Scunthorpe Museum']) {
+      const line = creditText({ author, licence: 'CC BY 4.0', url: 'https://example.org/x' }, RAMP)
+      expect(line).toContain(author)
+      expect(resultPasses(author)).toBe(true)
+    }
   })
 
   it('goes into the text export under the header', () => {
