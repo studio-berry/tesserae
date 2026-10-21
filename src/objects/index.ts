@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { mulberry32 } from '../engine/core'
+import { checkTyped } from '../safety'
 import { fromPrompt, normalisePrompt, type Provenance } from './prompt'
 import { Cloud, Samples, Soup, sampleCloud, sampleSoup } from './sample'
 import { frontWeighted, surfaceFrom } from './soup'
@@ -184,7 +185,25 @@ const prepareSource = async (src: Source, seed: number, count: number): Promise<
   return cache.set(key, settle(await build(src, seed, count)))
 }
 
+// The one gate a source passes before anything is drawn.
+//
+// The text box, the prompt box, the two tab buttons, a dropped file and a view arriving on a
+// shared url all end up here, and only the two boxes checked on the way in. The url arrived
+// already holding its own text, so the effect that checks a keystroke read `clean === text`,
+// found them equal and returned without checking, and the tab buttons called setSource
+// directly. Holding it here means a path added later cannot miss it.
+//
+// A refusal is thrown so it takes the same road as any other failure: the message shows and the
+// previous object stays on screen. The message never names the word.
+const gateSource = (src: Source) => {
+  const checked = src.kind === 'library' ? '' : src.kind === 'file' ? src.name : src.text
+  if (!checked) return
+  const verdict = checkTyped(checked)
+  if (!verdict.ok) throw new Error(verdict.reason)
+}
+
 export const prepare = async (src: Source, count: number, seed: number): Promise<Shape> => {
+  gateSource(src)
   const p = await prepareSource(src, seed, count)
   const s = p.samples
   return {
