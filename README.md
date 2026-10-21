@@ -76,7 +76,9 @@ fetches from no other host.
   like a terminal) and `dots` (a halftone). The switch dims the canvas for a beat rather than
   cutting.
 - **tune**: glyph set (the original five, plus braille, upper, math, arrows, katakana, greek, hex,
-  cyrillic, punct and slashes, or your own characters), ink colour, density (1.5k–12k glyphs), spin,
+  cyrillic, punct and slashes, or your own characters), palette (porcelain, blueprint, terracotta,
+  celadon, orchid; each design picks the one it was drawn for, and the swatch with the rainbow ring
+  keeps a model's own colours), density (1.5k–12k glyphs), spin,
   scatter, and export. **surprise** makes reroll change the glyph set too; **look → edges** lets the
   silhouette take direction glyphs instead of the brightness ramp, the way hand-drawn ASCII art
   reads.
