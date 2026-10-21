@@ -4,7 +4,7 @@ import { R, mulberry32 } from '../engine/core'
 import { glyphSizeFor, lru, prepare } from './index'
 import { LIBRARY } from './library'
 import { sampleSoup } from './sample'
-import { surfaceFrom } from './soup'
+import { hasSurface, surfaceFrom } from './soup'
 import { build } from './worker'
 
 const COUNT = 400
@@ -35,6 +35,41 @@ describe('library surfaces', () => {
       expect(skew, o.id).toBeLessThan(1e-4)
       expect(s.spacing, o.id).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('hasSurface', () => {
+  // settle throws when a model has nothing to draw, and settle runs after the backend chain has
+  // returned, where a throw ends the prompt instead of trying the next backend. The backend
+  // asks first, so it has to answer the same way the sampler would.
+  it('agrees with the sampler about what a model holds', () => {
+    const material = new THREE.MeshBasicMaterial()
+
+    const box = new THREE.Group()
+    box.add(new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material))
+    expect(hasSurface(box)).toBe(true)
+
+    // line geometry has positions, so a naive check says there is something there, but the
+    // sampler skips it and nothing would reach the stage
+    const lines = new THREE.Group()
+    const edge = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0)])
+    lines.add(new THREE.LineSegments(edge, material))
+    expect(hasSurface(lines)).toBe(false)
+    expect(surfaceFrom(lines).soup).toBeNull()
+
+    // a point cloud is drawable even without a triangle between its points
+    const cloud = new THREE.Group()
+    const pts = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 1, 1)])
+    cloud.add(new THREE.Points(pts, material))
+    expect(hasSurface(cloud)).toBe(true)
+
+    // hidden meshes are skipped by the sampler, so they are not a surface either
+    const hidden = new THREE.Group()
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material)
+    mesh.visible = false
+    hidden.add(mesh)
+    expect(hasSurface(hidden)).toBe(false)
+    expect(surfaceFrom(hidden).soup).toBeNull()
   })
 })
 
