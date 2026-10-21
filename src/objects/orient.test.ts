@@ -210,6 +210,58 @@ describe('applyOrientation', () => {
     }
   })
 
+  it('turns a part placed by its offset, not only a part placed by its rotation', () => {
+    // A child sits at an offset from its parent as well as at an angle, and a correction that
+    // turns only the angle spins the part in place and leaves it standing where it stood. The
+    // model comes out unmade. Two of sixty sampled models place parts by translation, one with
+    // eighty four of them, so this is a shape the index really holds.
+    //
+    // The contract is exact: after the turn every world point is the original point turned by
+    // the correction, so the parts stay in the same arrangement about the root.
+    const root = new THREE.Group()
+    const material = new THREE.MeshBasicMaterial()
+    const left = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material)
+    const right = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material)
+    left.position.set(3, 0, 0)
+    right.position.set(-3, 0, 0)
+    left.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 4)
+    root.add(left, right)
+    root.updateMatrixWorld(true)
+
+    const before: THREE.Vector3[] = []
+    root.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (!m.isMesh) return
+      const attr = m.geometry.getAttribute('position')
+      const v = new THREE.Vector3()
+      for (let i = 0; i < attr.count; i++) before.push(v.fromBufferAttribute(attr, i).applyMatrix4(m.matrixWorld).clone())
+    })
+
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2)
+    applyOrientation(root, { quaternion: q, confidence: 1 })
+    root.updateMatrixWorld(true)
+
+    const after: THREE.Vector3[] = []
+    root.traverse((o) => {
+      const m = o as THREE.Mesh
+      if (!m.isMesh) return
+      const attr = m.geometry.getAttribute('position')
+      const v = new THREE.Vector3()
+      for (let i = 0; i < attr.count; i++) after.push(v.fromBufferAttribute(attr, i).applyMatrix4(m.matrixWorld).clone())
+    })
+
+    expect(after).toHaveLength(before.length)
+    before.forEach((p, i) => {
+      const want = p.clone().applyQuaternion(q)
+      expect(after[i].x, `point ${i}`).toBeCloseTo(want.x, 6)
+      expect(after[i].y, `point ${i}`).toBeCloseTo(want.y, 6)
+      expect(after[i].z, `point ${i}`).toBeCloseTo(want.z, 6)
+    })
+    // and the offset really did travel: the part that stood at x = -3 now sits at y = -3
+    expect(right.position.x).toBeCloseTo(0, 6)
+    expect(right.position.y).toBeCloseTo(-3, 6)
+  })
+
   it('leaves a model alone when there is nothing to correct', () => {
     const g = new THREE.BoxGeometry(1, 3, 1)
     const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial())

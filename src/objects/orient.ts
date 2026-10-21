@@ -329,7 +329,14 @@ export const applyOrientation = (root: THREE.Object3D, o: Orientation) => {
   const parent = new THREE.Quaternion()
   root.getWorldQuaternion(parent)
   const local = parent.clone().invert().multiply(o.quaternion).multiply(parent)
-  for (const child of root.children) child.quaternion.premultiply(local)
+  // Both halves of the child's transform turn. A child is placed by its rotation and by its
+  // offset from its parent, and turning only the rotation spins a part in place while leaving it
+  // where it stood: the model comes out unmade. Two of sixty sampled models place their parts by
+  // translation, one with eighty four of them, so the offset has to travel with the turn.
+  for (const child of root.children) {
+    child.position.applyQuaternion(local)
+    child.quaternion.premultiply(local)
+  }
   root.updateMatrixWorld(true)
   return root
 }
