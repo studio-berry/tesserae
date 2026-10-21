@@ -131,4 +131,36 @@ describe('prepare', () => {
     expect(s.source).toBeNull()
     expect(s.count).toBe(80)
   })
+
+  it('refuses a blocked word wherever the source came from', async () => {
+    // Two callers checked on the way in and the rest did not. A view arriving on a shared url
+    // came with its text already set, so the effect that checks a keystroke read clean === text,
+    // found them equal and returned without checking. The tab buttons called setSource
+    // directly. A dropped file was never checked at all, while the readme promises that a typed
+    // word, a prompt and a dropped file's name are all checked before anything is drawn.
+    //
+    // All three land here, so all three are refused, and the refusal is the same one the box
+    // shows rather than a message naming the word.
+    const word = 'fuck'
+    await expect(prepare({ kind: 'text', text: word }, 60, 0), 'from the url').rejects.toThrow(
+      'That word is blocked. Try another.',
+    )
+    await expect(prepare({ kind: 'prompt', text: word }, 60, 0), 'from the prompt').rejects.toThrow(
+      'That word is blocked. Try another.',
+    )
+    const object = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial())
+    await expect(
+      prepare({ kind: 'file', name: `${word}.stl`, object, bytes: 2048 }, 60, 0),
+      'from a dropped file',
+    ).rejects.toThrow('That word is blocked. Try another.')
+  })
+
+  it('lets a name that merely holds a blocked word through', async () => {
+    // The typed rule is the whole-token one, so a place name is never refused for the letters
+    // inside it. The gate at the draw boundary has to keep that promise too, or a dropped model
+    // called seabass.stl would be refused by a check the prompt box would pass.
+    const object = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial())
+    const s = await prepare({ kind: 'file', name: 'seabass.stl', object, bytes: 2048 }, 60, 0)
+    expect(s.title).toBe('seabass.stl')
+  })
 })
