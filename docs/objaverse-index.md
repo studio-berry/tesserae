@@ -54,16 +54,16 @@ This is the real run against the pinned data, at the default `score >= 3`:
 | not a figure | 168,707 |
 | not filed as character or person | 155,611 |
 | no fan art words | 147,838 |
-| no explicit or blocked words | 147,623 |
-| not on the reviewed denylist | 147,579 |
-| not flagged as explicit | 147,574 |
-| glb <= 8 MB, faces <= 200K | 92,306 |
+| no explicit or blocked words | 147,706 |
+| not on the reviewed denylist | 147,662 |
+| not flagged as explicit | 147,657 |
+| glb <= 8 MB, faces <= 200K | 92,296 |
 
 Every objaverse++ row is in object-paths and has metadata, so the first three steps cost
 nothing. The licence step is the big one: 93,281 rows are CC BY-NC, CC BY-NC-SA, CC BY-SA or
 CC0, and none of them may ship.
 
-The size filter runs last, where the python prototype had it, and it drops 55,317 rows. The
+The size filter runs last, where the python prototype had it, and it drops 55,361 rows. The
 order matters: it is the last step so the other filters are not asked to read the metadata of
 rows the size filter would have dropped anyway.
 
@@ -246,13 +246,15 @@ npm run index:objaverse:report   # prints the funnel and the sizes, writes nothi
 ```
 
 The build reads the pinned commits and checks the sha256 of each download, so the same inputs
-give the same file. The index this branch ships is sha256
-`716b17687da9a8f435f5378257b906b8bbbf697afb5064bfd8b5ad8f30277ad1`, and a rebuild from the same
+give the same file. The index in the tree is sha256
+`83d6c74d3f9c360b9e45dc6d826415a32b10865892932f90b3ccadeef63ce596`, and a rebuild from the same
 data gives that file byte for byte.
 
 The hash belongs to the filters as well as the data, because the filters decide which rows
 survive. A later change to the content rule or to the denylist changes the file, and the hash
-with it, so the hash is checked against the filters and not only against the pinned commits.
+with it. A note that names a hash can drift away from the file it names, so the test compares
+the two: it reads the index in the tree, takes its sha256 and fails on the number written here.
+The note cannot disagree with the file it describes.
 
 The build is a stream rather than a join. The cap3d csv holds 1.6 million captions, which does
 not fit in memory as a map, so the metadata is filtered first and the csv is then walked once,
