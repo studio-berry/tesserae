@@ -187,6 +187,38 @@ export const scanLine = (line: string, ramp: string) => {
   return out
 }
 
+// The span a blocked word occupies when it is a whole word rather than a run inside a longer one.
+// `wide` holds the words and `narrow` the letters they are made of, so a word starts in `narrow`
+// at the length of every word before it.
+const firstWordHit = (text: string): Hit | null => {
+  const p = probe(text)
+  let base = 0
+  for (const token of p.wide.split(' ')) {
+    if (!token) continue
+    if (KIND.has(token)) return { i: base, len: token.length, at: p.at, to: p.to }
+    base += token.length
+  }
+  return null
+}
+
+const repair = (line: string, ramp: string, hitOf: (text: string) => Hit | null) => {
+  let out = line
+  for (let pass = 0; pass < 4; pass++) {
+    const hit = hitOf(out)
+    if (!hit) break
+    const k = hit.i + (hit.len >> 1)
+    const next = nudge(out.slice(hit.at[k], hit.to[k]), ramp)
+    if (!next) break
+    out = out.slice(0, hit.at[k]) + next + out.slice(hit.to[k])
+  }
+  return out
+}
+
+// A credit, a caption or a title is words rather than a grid, so a hit counts only when it is the
+// whole word. "Scunthorpe" and "Seabass" keep their letters, and a name that really is a blocked
+// word is still repaired.
+export const scanWords = (line: string, ramp: string) => repair(line, ramp, firstWordHit)
+
 // enough of the name to recognise the file, not enough to read it in a caption
 export const maskName = (name: string) => {
   const dot = name.lastIndexOf('.')

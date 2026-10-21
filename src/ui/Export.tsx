@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { creditText, scanCredit, type Credit } from '../objects/credit'
-import { scanLine } from '../safety'
+import { scanLine, scanWords } from '../safety'
 
 export type ExportItem = { kind: 'text'; text: string } | { kind: 'png'; url: string }
 
@@ -10,7 +10,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 // title, the author and the licence of a searched model all come from a third party. The link is
 // the one thing left alone, because a link that was scanned would point at nothing.
 export const exportText = (body: string, caption: string, credit: Credit | null, ramp: string) => {
-  const lines = [`# gen-ascii · ${scanLine(caption, ramp)}`]
+  const lines = [`# gen-ascii · ${scanWords(caption, ramp)}`]
   const c = scanCredit(credit, ramp)
   if (c.words) lines.push(`# ${c.words} · ${c.url}`)
   lines.push(body.split('\n').map((l) => scanLine(l, ramp)).join('\n'))

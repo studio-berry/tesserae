@@ -1,5 +1,5 @@
 import { resultPasses } from '../safety/result'
-import { scanLine } from '../safety'
+import { scanWords } from '../safety'
 import type { Provenance, PromptResult } from './prompt'
 
 // The credit a source has to carry. CC BY and CC BY-SA both ask for the author, the licence, a
@@ -37,7 +37,7 @@ export const creditParts = (c: Credit) => ({
 export const scanCredit = (credit: Credit | null, ramp: string) => {
   if (!credit) return { words: '', url: '' }
   const { author, licence, note } = creditParts(credit)
-  return { words: scanLine(`${author} · ${licence} · ${note}`, ramp), url: credit.url }
+  return { words: scanWords(`${author} · ${licence} · ${note}`, ramp), url: credit.url }
 }
 
 // The credit as one line, for a caption or a caption strip.
