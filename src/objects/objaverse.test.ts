@@ -74,4 +74,26 @@ describe('findObjaverse', () => {
     expect(asked.length).toBeGreaterThan(2)
     expect(asked.some((u) => u.includes('b'.repeat(32)))).toBe(true)
   })
+
+  it('stops walking the matches when the budget is spent', async () => {
+    // A request is bounded on its own, but a match spreads that over two addresses and two
+    // attempts and a prompt takes twenty matches, so a hub that accepts a request and then never
+    // answers held the chain for as long as sixteen minutes. The budget is what stops that, and
+    // it is checked before a match starts rather than after it fails.
+    const asked: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('objaverse/index')) return new Response(JSON.stringify(index))
+      asked.push(url)
+      return new Response('', { status: 500 })
+    }) as unknown as typeof fetch)
+
+    // spent before the first match, so not one model is asked for
+    expect(await findObjaverse('lighthouse', { budgetMs: 0 })).toBeNull()
+    expect(asked).toEqual([])
+
+    // and the same call with time to spare does start the walk, so the empty list above is the
+    // budget working rather than the fetch never being reached at all
+    expect(await findObjaverse('lighthouse', { budgetMs: 60_000 })).toBeNull()
+    expect(asked.length).toBeGreaterThan(2)
+  })
 })

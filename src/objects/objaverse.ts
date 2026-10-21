@@ -24,10 +24,22 @@ export type ObjaverseOptions = {
   // which match to take, so a reroll steps through the matches
   step?: number
   rng?: Rng
+  // how long the whole backend may take, rather than one request. Set by a test to make the
+  // bound observable without waiting forty five seconds for it.
+  budgetMs?: number
 }
 
 // Finds a model in the index and draws it.
 //
+// How long the whole backend may hold a prompt, rather than one request.
+//
+// A request is bounded at twelve seconds, but a match tries that across two addresses and two
+// attempts, and a prompt takes twenty matches, so a hub that accepts a request and then never
+// answers holds the chain for sixteen minutes before the drawing backend behind it gets a turn.
+// The per-request bound protects one address; this protects the wait. It is checked where a
+// match is about to start, so the worst case is the budget plus one model's own retries.
+const HUB_BUDGET_MS = 45_000
+
 // Every step can fail, and every failure means the chain moves on: no index, no match, a model
 // the content rules refuse, a download that does not arrive, a model that cannot be parsed.
 export const findObjaverse = async (query: string, options: ObjaverseOptions = {}): Promise<PromptResult | null> => {
@@ -37,7 +49,7 @@ export const findObjaverse = async (query: string, options: ObjaverseOptions = {
   if (!matches.length) return null
   const row = pickRow(matches, options.step ?? 0)
   if (!row) return null
-  return drawRow(row, matches, index.revisions ?? {}, options)
+  return drawRow(row, matches, index.revisions ?? {}, options, Date.now() + (options.budgetMs ?? HUB_BUDGET_MS))
 }
 
 // The next match, once the one that was tried has been set aside.
@@ -48,11 +60,12 @@ const nextMatch = (
   tried: IndexRow,
   matches: Match[],
   revisions: Record<string, string>,
-  options: ObjaverseOptions
+  options: ObjaverseOptions,
+  deadline: number
 ): Promise<PromptResult | null> => {
   const rest = matches.filter((m) => m.row.uid !== tried.uid)
   const next = rest[0]
-  return next ? drawRow(next.row, rest, revisions, options) : Promise.resolve(null)
+  return next ? drawRow(next.row, rest, revisions, options, deadline) : Promise.resolve(null)
 }
 
 // The model a match points at, drawn.
@@ -65,10 +78,14 @@ const drawRow = async (
   row: IndexRow,
   matches: Match[],
   revisions: Record<string, string>,
-  options: ObjaverseOptions
+  options: ObjaverseOptions,
+  deadline: number
 ): Promise<PromptResult | null> => {
+  // checked before a match starts rather than after it fails, so a hub that is merely slow
+  // cannot spend the whole walk through the matches, and a backend behind this one still turns
+  if (Date.now() >= deadline) return null
   // the same content rules as any other result, read over the title and the caption
-  if (!passesContent(row.title, row.caption)) return nextMatch(row, matches, revisions, options)
+  if (!passesContent(row.title, row.caption)) return nextMatch(row, matches, revisions, options, deadline)
 
   const urls = glbUrls(row, revisions['allenai/objaverse'] ?? 'main')
   let loaded
@@ -82,14 +99,14 @@ const drawRow = async (
   }
   if (!loaded) {
     // the model could not be fetched or parsed, so the next match gets a turn
-    return nextMatch(row, matches, revisions, options)
+    return nextMatch(row, matches, revisions, options, deadline)
   }
   // A model can fetch and parse and still hold nothing the sampler can read: line geometry, or
   // meshes with their visibility off. That emptiness is noticed in settle, which runs after the
   // backend chain has returned, where a throw ends the prompt instead of trying the next
   // backend. The contract says a backend never throws, so it is asked here, while the next match
   // and the backends after it are both still to come.
-  if (!hasSurface(loaded.object)) return nextMatch(row, matches, revisions, options)
+  if (!hasSurface(loaded.object)) return nextMatch(row, matches, revisions, options, deadline)
   // the model has to meet the style contract: Y up and its front towards the viewer. A model
   // that cannot be read is left as it is rather than turned wrongly.
   const points = positionsOf(loaded.object)
