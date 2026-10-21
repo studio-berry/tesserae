@@ -43,10 +43,11 @@ STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 # choice.
 #
 # The threshold was measured, not guessed. The pass ran over the 20,000 models the index ships
-# and flagged 36 of them. Every one of the 36 was looked at, as a contact sheet, and not one
-# was explicit: they were a knife, a wine glass, a banana, an anatomical heart, a candle and a
-# bone. The false positives sit between 0.50 and 0.85, so a threshold of 0.9 keeps every one of
-# them.
+# and flagged 36 of them at 0.5, scoring from 0.502 to 0.977. Every one of the 36 was looked at,
+# as a contact sheet, and not one was explicit: they were a knife, a wine glass, a banana, an
+# anatomical heart, a candle and a bone. Seven score above 0.85 and five reach 0.9, so the
+# threshold does not spare them all. It drops those five, which is the point of asking for
+# confidence rather than eagerness, and the five it drops are the five the build refuses.
 #
 # A false drop costs a model, which is a small thing, and a missed one costs the app its
 # content rule, which is not. So the threshold is set where the classifier is confident rather
@@ -93,8 +94,15 @@ def fetch(url: str, dest: Path, tries: int = 5) -> bool:
 
 
 def load_model(cache: Path) -> ort.InferenceSession:
-    """The classifier, fetched once and held in the cache."""
-    path = cache / 'nsfw-model.onnx'
+    """The classifier, fetched once and held in the cache.
+
+    The cache file is named after the model and its revision, because the name is what decides
+    whether a fetch happens. A fixed name meant that pointing MODEL_FILE at a different model
+    still loaded the weights already on disk, and that a download cut short left a file the next
+    run accepted as complete: fetch() only asks whether anything is there.
+    """
+    stem = Path(MODEL_FILE).stem
+    path = cache / f'nsfw-{stem}-{MODEL_REVISION[:8]}.onnx'
     if not fetch(MODEL_URL, path):
         raise SystemExit(f'could not fetch the classifier from {MODEL_URL}')
     # a few threads, because the fetches need the rest of the machine
@@ -199,6 +207,11 @@ def main() -> None:
                 if s >= args.threshold:
                     flagged[uid] = s
                     print(f'  flagged {uid} {s:.3f}')
+            else:
+                # no thumbnail, a fetch that failed or a file that would not open: counted so
+                # the line at the end says how many rows were never scored rather than always
+                # reporting zero
+                failures += 1
             if i % 250 == 0:
                 print(f'  checked {i}, flagged {len(flagged)}', file=sys.stderr)
 
