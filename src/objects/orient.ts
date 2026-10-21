@@ -310,22 +310,26 @@ export const orient = (positions: ArrayLike<number>): Orientation => {
 
 // Applies an orientation to a model, in place.
 //
-// The correction goes on the model's meshes rather than on its root, because the triangle soup
+// The correction goes on the model's children rather than on its root, because the triangle soup
 // is built in the root's own space: the root's transform is multiplied out, so a rotation on
-// the root would be cancelled before it reached the samples. Rotating the meshes puts the
+// the root would be cancelled before it reached the samples. Rotating the children puts the
 // correction where it is read.
+//
+// It goes on the children and on nothing deeper. A correction premultiplied onto every
+// descendant is applied once per level of the hierarchy, so a mesh three groups down comes out
+// turned three times over, and a model only lands right when the correction happens to divide
+// the depth. Shipped models are nested rather than flat: in a sample of the index not one mesh
+// was a direct child of the scene root. The children carry the turn and the rest of the model
+// inherits it through them, which is one turn at any depth.
 export const applyOrientation = (root: THREE.Object3D, o: Orientation) => {
   if (o.confidence <= 0) return root
   root.updateMatrixWorld(true)
-  // the correction is in world terms, and the meshes sit in the root's space, so it is moved
+  // the correction is in world terms, and the children sit in the root's space, so it is moved
   // into that space first
   const parent = new THREE.Quaternion()
   root.getWorldQuaternion(parent)
   const local = parent.clone().invert().multiply(o.quaternion).multiply(parent)
-  root.traverse((child) => {
-    if (child === root) return
-    child.quaternion.premultiply(local)
-  })
+  for (const child of root.children) child.quaternion.premultiply(local)
   root.updateMatrixWorld(true)
   return root
 }
