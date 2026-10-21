@@ -3,6 +3,7 @@ import type { Theme } from '../engine/core'
 import { infoStore } from '../engine/info'
 import type { Shape } from '../objects'
 import { scanCredit } from '../objects/credit'
+import { scanWords } from '../safety'
 
 const KIND = { library: 'library', text: 'type', file: 'model', prompt: 'prompt' }
 const STEPS = 11
@@ -31,7 +32,15 @@ export function Hud({ shape, status, error, theme, ramp, onRetry }: Props) {
   // the third argument is the server snapshot, so the caption can be rendered without a browser
   const info = useSyncExternalStore(infoStore.subscribe, infoStore.get, infoStore.get)
   const glyphs = Array.isArray(ramp) ? ramp : ramp ? [...ramp] : []
-  const meta = shape ? [shape.detail, shape.triangles ? `${shape.triangles.toLocaleString()} triangles` : ''].filter(Boolean).join(' · ') : ''
+  // The detail line carries the licence, which comes from the same third party as the credit
+  // below it. It is scanned for the same reason the credit is, so one licence is not scanned
+  // while the same licence printed a line above it goes out raw.
+  const meta = shape
+    ? scanWords(
+        [shape.detail, shape.triangles ? `${shape.triangles.toLocaleString()} triangles` : ''].filter(Boolean).join(' · '),
+        glyphs.join(''),
+      )
+    : ''
   // the engine marks work in progress with a trailing ellipsis
   const busy = !error && status.endsWith('…')
   // a searched model or drawing carries its credit, so the licence asks are answered on screen.
