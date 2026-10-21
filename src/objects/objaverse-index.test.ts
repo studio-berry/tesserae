@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { gunzipSync } from 'node:zlib'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -94,6 +95,19 @@ describe('the objaverse index file', () => {
       `https://huggingface.co/datasets/allenai/objaverse/resolve/${index.revisions['allenai/objaverse']}/glbs/${row.chunk}/${row.uid}.glb`,
     )
     expect(sketchfabUrl(row.uid)).toBe(`https://sketchfab.com/3d-models/${row.uid}`)
+  })
+
+
+  // A note that publishes a hash can drift away from the file it names. The doc said one hash
+  // while the tree held another after the index was rebuilt, and nothing failed, so a reader who
+  // compared them would find a mismatch and no explanation. The two are compared here so the
+  // note cannot disagree with the file it describes.
+  it('matches the hash the doc publishes for it', () => {
+    const shipped = createHash('sha256').update(readFileSync(indexPath)).digest('hex')
+    const doc = readFileSync(resolve(here, '..', '..', 'docs', 'objaverse-index.md'), 'utf8')
+    const published = doc.match(/index in the tree is sha256\s+`([0-9a-f]{64})`/)
+    expect(published, 'the doc publishes a sha256 for the index').not.toBeNull()
+    expect(shipped).toBe(published![1])
   })
 
   it('has no title that a reader would have to squint at', () => {
