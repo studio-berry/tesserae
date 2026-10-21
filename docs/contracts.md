@@ -250,5 +250,6 @@ Post({ mode, theme, atlas, orient })
 ## Theme tokens
 
 `applyTokens(theme)` writes the theme and tint colours onto `document.documentElement.style` as
-`--ink-*` and `--theme-*` custom properties at start-up and on every theme change. Both the
-shaders (through `core.ts`) and `styles.css` read from there, so a colour is changed in one place.
+`--ink-*` and `--theme-*` custom properties at start-up and on every theme change. The shaders
+take their colours from the same `core.ts` values, so `styles.css` reads what the shaders were
+given rather than the two reading each other, and a colour is changed in one place.
