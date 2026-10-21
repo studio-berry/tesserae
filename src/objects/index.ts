@@ -3,6 +3,7 @@ import { mulberry32 } from '../engine/core'
 import { checkTyped } from '../safety'
 import { fromPrompt, normalisePrompt, type Provenance } from './prompt'
 import { Cloud, Samples, Soup, sampleCloud, sampleSoup } from './sample'
+import { standUpright } from './orient'
 import { frontWeighted, surfaceFrom } from './soup'
 import type { Answer, Packed, Threaded } from './worker'
 
@@ -174,8 +175,10 @@ const build = async (src: Source, seed: number, count: number): Promise<Made> =>
     const { soup, cloud } = surfaceFrom(r.object)
     return { soup, cloud, samples: localSample(soup, cloud, r.flat, count, seed), title: r.title, detail: r.detail, twoSided: !!r.twoSided, flat: r.flat, source: r.source }
   }
-  // a model can be open or closed; light both faces and let the occluder sort out visibility
-  const { soup, cloud } = surfaceFrom(src.object)
+  // a model can be open or closed; light both faces and let the occluder sort out visibility.
+  // A dropped file arrives with whatever up axis its tool exported, so it stands up here rather
+  // than only the hub models standing up.
+  const { soup, cloud } = surfaceFrom(standUpright(src.object))
   return { soup, cloud, samples: localSample(soup, cloud, false, count, seed), title: src.name, detail: kb(src.bytes), twoSided: true, flat: false, source: null }
 }
 

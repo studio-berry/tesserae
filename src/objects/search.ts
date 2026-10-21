@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { passesContent } from './credit'
+import { standUpright } from './orient'
 import { tidyName } from './objaverse-index'
 import type { PromptResult, Provenance } from './prompt'
 
@@ -150,7 +151,10 @@ export async function findModel(query: string): Promise<PromptResult | null> {
       }
       geo.computeVertexNormals()
       return {
-        object: new THREE.Mesh(geo, new THREE.MeshBasicMaterial()),
+        // an stl carries no up axis of its own, so whatever the uploader exported is what the
+        // stage would draw. The contract says every source stands Y up, and this is the one
+        // backend that never looked at the model it was handed.
+        object: standUpright(new THREE.Mesh(geo, new THREE.MeshBasicMaterial())),
         title: hit.title,
         detail: `commons · ${hit.licence}`,
         twoSided: true,

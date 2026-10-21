@@ -321,6 +321,38 @@ export const orient = (positions: ArrayLike<number>): Orientation => {
 // the depth. Shipped models are nested rather than flat: in a sample of the index not one mesh
 // was a direct child of the scene root. The children carry the turn and the rest of the model
 // inherits it through them, which is one turn at any depth.
+// The world positions of everything under a root, so an orientation can be read from them.
+const positionsOf = (root: THREE.Object3D): Float32Array | null => {
+  const out: number[] = []
+  root.updateMatrixWorld(true)
+  root.traverse((o) => {
+    const m = o as THREE.Mesh
+    const pos = m.geometry?.attributes?.position
+    if (!pos) return
+    const v = new THREE.Vector3()
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld)
+      out.push(v.x, v.y, v.z)
+    }
+  })
+  return out.length > 3 ? new Float32Array(out) : null
+}
+
+// Turns a model so it meets the style contract: Y up, its front toward the viewer.
+//
+// Every source meets that contract, the readme says, and two of them were handed over untouched:
+// a Commons stl, whose up axis is whatever the uploader exported, and a dropped file, which can
+// come out of any tool at all. The hub models went through this and those two did not, so the
+// contract named three backends' worth of work and two of them skipped it.
+//
+// A model that cannot be read is left as it is rather than turned wrongly, and a model already
+// standing gets the identity, so running this twice on the same object does no harm.
+export const standUpright = (object: THREE.Object3D): THREE.Object3D => {
+  const points = positionsOf(object)
+  if (points) applyOrientation(object, orient(points))
+  return object
+}
+
 export const applyOrientation = (root: THREE.Object3D, o: Orientation) => {
   if (o.confidence <= 0) return root
   root.updateMatrixWorld(true)

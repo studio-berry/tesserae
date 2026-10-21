@@ -5,7 +5,7 @@ import { objaverseIndex } from './objaverse-fetch'
 import { glbUrls, sketchfabUrl, type IndexRow } from './objaverse-index'
 import { matchRows, pickRow, type Match } from './objaverse-match'
 import type { PromptResult } from './prompt'
-import { applyOrientation, orient } from './orient'
+import { standUpright } from './orient'
 import { hasSurface } from './soup'
 import { loadUrl } from './url-loader'
 
@@ -109,8 +109,7 @@ const drawRow = async (
   if (!hasSurface(loaded.object)) return nextMatch(row, matches, revisions, options, deadline)
   // the model has to meet the style contract: Y up and its front towards the viewer. A model
   // that cannot be read is left as it is rather than turned wrongly.
-  const points = positionsOf(loaded.object)
-  if (points) applyOrientation(loaded.object, orient(points))
+  standUpright(loaded.object)
 
   return {
     object: loaded.object,
@@ -122,19 +121,4 @@ const drawRow = async (
   }
 }
 
-// The points of a model, so its orientation can be read.
-const positionsOf = (root: THREE.Object3D): Float32Array | null => {
-  const out: number[] = []
-  root.updateMatrixWorld(true)
-  root.traverse((o) => {
-    const m = o as THREE.Mesh
-    const pos = m.geometry?.attributes?.position
-    if (!pos) return
-    const v = new THREE.Vector3()
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld)
-      out.push(v.x, v.y, v.z)
-    }
-  })
-  return out.length > 3 ? new Float32Array(out) : null
-}
+
