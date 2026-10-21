@@ -15,7 +15,7 @@ export type IndexRow = {
 }
 
 export type Index = {
-  version: string // the build's id, so a stale cache can be told from a fresh one
+  version: string // the id of the build that wrote it, checked when the index is loaded
   rows: number
   revisions: Record<string, string> // a dataset, and the commit the build read
   data: IndexRow[]

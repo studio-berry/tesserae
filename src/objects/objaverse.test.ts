@@ -42,7 +42,10 @@ describe('findObjaverse', () => {
   it('moves on to the next match when the first one is refused', async () => {
     // the first match holds a word the content rules refuse, so the second one gets a turn
     const refused: Index = {
+      // rows is part of the index the build writes and the fetch now checks it, so a fixture
+      // that changes the data has to change the count with it
       ...index,
+      rows: 2,
       data: [
         row('a'.repeat(32), 'Lighthouse', 'A lighthouse, an ass of a model'),
         row('b'.repeat(32), 'Lighthouse', 'Another lighthouse on a headland'),
