@@ -56,8 +56,18 @@ describe('the objaverse index file', () => {
 
   it('gives every row the fields the app reads', () => {
     const index = readIndex()
-    for (const row of index.data.slice(0, 500)) {
-      expect(row.uid).toMatch(/^[0-9a-zA-Z]{32}$/)
+    // Every row rather than a slice. The name of this test promised every row while the loop
+    // reached 500 of them, and the first uid that is not 32 characters sits at 1380, so the
+    // wrong length below was never seen.
+    //
+    // The uid is checked for what a url needs, not for one length. Objaverse uids are usually
+    // 32 characters but the source really does hold 26 and 27 character ones, and a 27
+    // character one answers on the hub while a fake one of the same length does not, so the
+    // length is a real range rather than a single expected value.
+    for (const row of index.data) {
+      expect(row.uid).toMatch(/^[0-9a-zA-Z]+$/)
+      expect(row.uid.length).toBeGreaterThanOrEqual(16)
+      expect(row.uid.length).toBeLessThanOrEqual(32)
       expect(row.title.length).toBeGreaterThan(0)
       expect(row.title.length).toBeLessThanOrEqual(80)
       expect(row.caption.length).toBeGreaterThan(0)
@@ -112,7 +122,9 @@ describe('the objaverse index file', () => {
 
   it('has no title that a reader would have to squint at', () => {
     const index = readIndex()
-    for (const row of index.data.slice(0, 2000)) {
+    // all 20,000 rather than the first 2,000, because a title further down the index is read
+    // by the same caption and the check costs nothing
+    for (const row of index.data) {
       // no underscores, no doubled spaces, no leading or trailing space
       expect(row.title).not.toMatch(/_/)
       expect(row.title).not.toMatch(/ {2}/)
