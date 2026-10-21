@@ -6,6 +6,7 @@ import { glbUrls, sketchfabUrl, type IndexRow } from './objaverse-index'
 import { matchRows, pickRow, type Match } from './objaverse-match'
 import type { PromptResult } from './prompt'
 import { applyOrientation, orient } from './orient'
+import { hasSurface } from './soup'
 import { loadUrl } from './url-loader'
 
 // The Objaverse backend: a prompt is matched against a static index of model descriptions, and
@@ -83,6 +84,12 @@ const drawRow = async (
     // the model could not be fetched or parsed, so the next match gets a turn
     return nextMatch(row, matches, revisions, options)
   }
+  // A model can fetch and parse and still hold nothing the sampler can read: line geometry, or
+  // meshes with their visibility off. That emptiness is noticed in settle, which runs after the
+  // backend chain has returned, where a throw ends the prompt instead of trying the next
+  // backend. The contract says a backend never throws, so it is asked here, while the next match
+  // and the backends after it are both still to come.
+  if (!hasSurface(loaded.object)) return nextMatch(row, matches, revisions, options)
   // the model has to meet the style contract: Y up and its front towards the viewer. A model
   // that cannot be read is left as it is rather than turned wrongly.
   const points = positionsOf(loaded.object)

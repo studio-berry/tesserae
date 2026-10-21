@@ -34,8 +34,11 @@ const texSampler = (tex: THREE.Texture): TexSampler | null => {
 
 type Part = { geo: THREE.BufferGeometry; matrix: THREE.Matrix4; material: THREE.Material | THREE.Material[] }
 
-// Flattens every mesh under root into one triangle soup in root's space; points become a cloud
-export const soupFrom = (root: THREE.Object3D): { soup: Soup | null; cloud: Cloud | null } => {
+// What a model holds that the sampler can read: the meshes, points and instances under root,
+// brought into root's space, with the visibility and geometry test in one place. The sampler and
+// a backend asking whether there is anything to draw both go through it, so the two cannot
+// disagree about what counts as a surface.
+const collect = (root: THREE.Object3D) => {
   root.updateMatrixWorld(true)
   const inv = new THREE.Matrix4().copy(root.matrixWorld).invert()
   const parts: Part[] = [], points: Part[] = []
@@ -53,6 +56,21 @@ export const soupFrom = (root: THREE.Object3D): { soup: Soup | null; cloud: Clou
   // count triangles up front so the soup is allocated once
   let tris = 0
   for (const p of parts) tris += Math.floor((p.geo.index ? p.geo.index.count : p.geo.attributes.position.count) / 3)
+  return { parts, points, tris }
+}
+
+// Whether a model holds anything at all: some triangles, or some points. A backend asks this
+// before it commits to a result, because the emptiness check in settle runs after the backend
+// chain has already returned and there is nothing left to fall through to. The contract says a
+// backend never throws, so the answer has to be known while the next one can still be tried.
+export const hasSurface = (root: THREE.Object3D): boolean => {
+  const { points, tris } = collect(root)
+  return tris > 0 || points.some((p) => p.geo.attributes.position.count > 0)
+}
+
+// Flattens every mesh under root into one triangle soup in root's space; points become a cloud
+export const soupFrom = (root: THREE.Object3D): { soup: Soup | null; cloud: Cloud | null } => {
+  const { parts, points, tris } = collect(root)
 
   let soup: Soup | null = null
   if (tris > 0) {
