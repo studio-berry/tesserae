@@ -153,7 +153,7 @@ and a character from somebody else's world cannot be told apart from a sculpture
 alone. The cost is that a prompt for "knight", "robot", "statue" or "astronaut" finds nothing
 and falls back to Commons.
 
-The filters are the largest content filter by a factor of six. Of the 207,578 rows that were
+The filters are the largest content filter by a factor of five. Of the 207,578 rows that were
 clean on every other count, the figure filter dropped 38,871, 18.7 per cent, and the category
 filter dropped a further 13,096, 6.3 per cent. The franchise words dropped 7,773, 3.7 per
 cent. So a quarter of the clean rows are gone because they hold a person.
@@ -204,7 +204,7 @@ collection of 20,000 public 3D models, a general-purpose explicit-image classifi
 nothing it was sure of, and every model it was unsure about was innocent. The check is worth
 running because it is cheap and it is offline, not because it found anything.
 
-The script is `scripts/objaverse-nsfw.py` and the uids it flagged are in
+The script is `scripts/objaverse-nsfw.py` and the five uids above the threshold are in
 `scripts/objaverse-flagged.ts`. It reads the model from the hub at a pinned commit, so the
 pass reads the same classifier every time it runs.
 

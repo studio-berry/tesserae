@@ -112,12 +112,23 @@ describe('the objaverse index file', () => {
   // while the tree held another after the index was rebuilt, and nothing failed, so a reader who
   // compared them would find a mismatch and no explanation. The two are compared here so the
   // note cannot disagree with the file it describes.
-  it('matches the hash the doc publishes for it', () => {
+  it('matches the hash the docs publish for it', () => {
     const shipped = createHash('sha256').update(readFileSync(indexPath)).digest('hex')
-    const doc = readFileSync(resolve(here, '..', '..', 'docs', 'objaverse-index.md'), 'utf8')
-    const published = doc.match(/index in the tree is sha256\s+`([0-9a-f]{64})`/)
-    expect(published, 'the doc publishes a sha256 for the index').not.toBeNull()
-    expect(shipped).toBe(published![1])
+    const docs = resolve(here, '..', '..', 'docs')
+    // The same hash is written down twice, in the note and in the decision log. The note was
+    // corrected once and the log was left holding the old number, so both are read here rather
+    // than one of them being trusted.
+    const published = [
+      { file: 'objaverse-index.md', text: readFileSync(resolve(docs, 'objaverse-index.md'), 'utf8'),
+        pattern: /index in the tree is sha256\s+`([0-9a-f]{64})`/ },
+      { file: 'run-log.tsv', text: readFileSync(resolve(docs, 'run-log.tsv'), 'utf8'),
+        pattern: /index\.json\.gz`? was ([0-9a-f]{64}) on both runs/ },
+    ]
+    for (const { file, text, pattern } of published) {
+      const hit = text.match(pattern)
+      expect(hit, `${file} publishes a sha256 for the index`).not.toBeNull()
+      expect(shipped, file).toBe(hit![1])
+    }
   })
 
   it('has no title that a reader would have to squint at', () => {
