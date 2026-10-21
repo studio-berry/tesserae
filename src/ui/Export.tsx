@@ -61,7 +61,7 @@ export function Export({ item, onClose, caption, credit }: { item: ExportItem; o
           ? <pre ref={pre} className="ascii">{item.text}</pre>
           : <img className="shot" src={item.url} alt="the current view as an image" />}
         <p className="caption">{caption ?? 'gen-ascii'}</p>
-        {credit && <p className="caption">{credit}</p>}
+        {credit && <p className="credit">{credit}</p>}
         <div className="actions">
           {item.kind === 'text' ? <button type="button" onClick={copy}>copy</button> : !embedded && <button type="button" onClick={save}>download</button>}
           <button type="button" onClick={onClose}>close</button>
