@@ -57,7 +57,9 @@ function makeTarget(shape: Shape | null, dir: THREE.Vector3, rnd: () => number):
   const dustKeep = Math.min(1, DUST_SHOWN / Math.max(1, N - (shape?.count ?? 0)))
   for (let i = 0; i < N; i++) {
     t.size[i] = 0.035 + rnd() * 0.04
-    t.alpha[i] = rnd() < dustKeep ? 0.04 + rnd() * 0.1 : 0
+    // both draws happen for every dot, so a re-sample that changes dustKeep keeps the same stream
+    const shown = rnd() < dustKeep, alpha = 0.04 + rnd() * 0.1
+    t.alpha[i] = shown ? alpha : 0
     t.order[i] = rnd()
   }
   if (!shape) return t
@@ -214,6 +216,10 @@ export function Stage({ shape, mode, theme, palette, atlas, spin, orient, paused
     grab: { point: new THREE.Vector3(), held: 0, mode: 0 },
     squash: 0, squashDir: new THREE.Vector2(1, 0),
   })
+
+  // A new engine starts at zoom 1, and after a context restore the caller may still hold the old
+  // zoom, so it would keep sampling for a zoom nobody sees
+  useEffect(() => { onZoom?.(1) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Takes on a new set of targets without moving anything by hand: what each dot is doing right now
   // is frozen into aFrom and the aPrev* attributes, and the vertex shader animates from there. This
