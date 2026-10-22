@@ -36,7 +36,7 @@ export function readUrl(search: string, defaultDensity: number, system: Theme): 
     text: text ?? 'ascii',
     prompt: prompt ?? '',
     seed: Math.max(0, parseInt(q.get('seed') ?? '0') || 0),
-    density: Math.max(1500, Math.min(12000, parseInt(q.get('n') ?? '') || defaultDensity)),
+    density: Math.max(3000, Math.min(24000, parseInt(q.get('n') ?? '') || defaultDensity)),
     mode: pick(q.get('mode'), MODES, 'letters'),
     theme: pick(q.get('theme'), ['dark', 'light'] as const, system),
     palette: inkOf(q.get('ink')),
@@ -62,4 +62,4 @@ export function writeUrl(s: Settings, defaultDensity: number) {
 }
 
 // phones start with fewer, larger glyphs; recomputed on resize so a rotation is respected
-export const defaultDensity = (w: number, h: number) => (Math.min(w, h) < 500 ? 4500 : 6000)
+export const defaultDensity = (w: number, h: number) => (Math.min(w, h) < 500 ? 9000 : 12000)

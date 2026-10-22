@@ -47,7 +47,7 @@ export function Panel(p: Props) {
       </div>
       <label className="row">
         <span className="label">density</span>
-        <input type="range" min={1500} max={12000} step={500} value={p.density} onChange={(e) => p.setDensity(+e.target.value)} />
+        <input type="range" min={3000} max={24000} step={1000} value={p.density} onChange={(e) => p.setDensity(+e.target.value)} />
         <b>{(p.density / 1000).toFixed(1)}k</b>
       </label>
       <div className="row">

@@ -74,10 +74,12 @@ describe('hasSurface', () => {
 })
 
 describe('glyphSizeFor', () => {
-  it('covers the pitch of the tightest surface, so neighbouring glyphs meet', () => {
+  // the atlas ink is 0.42 of a tile wide, so between 1.3 and 1.6 pitches a letter's ink nearly
+  // meets its neighbour's without the two stacking
+  it('sits letters side by side on the tightest surface rather than stacking them', () => {
     const tightest = Math.min(...objects.map((o) => o.sample!.spacing))
-    expect(glyphSizeFor(COUNT)).toBeGreaterThanOrEqual(tightest * 1.9)
-    expect(glyphSizeFor(COUNT)).toBeLessThanOrEqual(tightest * 2.1)
+    expect(glyphSizeFor(COUNT)).toBeGreaterThanOrEqual(tightest * 1.3)
+    expect(glyphSizeFor(COUNT)).toBeLessThanOrEqual(tightest * 1.6)
   })
 
   it('depends on density alone', () => {

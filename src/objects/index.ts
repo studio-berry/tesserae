@@ -34,11 +34,12 @@ export type Shape = Samples & {
 }
 
 // Glyph size depends on density alone, never on the object's own area, so the type does not
-// change when the object does. The cell covers the pitch the samples sit at, 4.17/sqrt(count) for
-// the tightest library surface, so neighbouring glyphs' ink meets: the atlas measures 0.42 of a
-// tile wide and 0.50 high, which leaves a gap at 1.0 and just meets at 2.0.
+// change when the object does. The cell is 1.45 times the pitch the samples sit at, 4.17/sqrt(count)
+// for the tightest library surface. The atlas ink fills 0.42 of a tile wide and 0.50 high, so at
+// 1.45 each letter keeps a little air on every side: neighbours sit next to each other rather than
+// stacking into a smear, and density, not glyph size, carries the detail.
 export const GLYPH_PITCH = 4.17
-export const GLYPH_FILL = 2
+export const GLYPH_FILL = 1.45
 export const glyphSizeFor = (count: number) => (GLYPH_PITCH * GLYPH_FILL) / Math.sqrt(Math.max(1, count))
 
 // The surface grows with the square of the zoom, so a zoom needs more glyphs rather than bigger

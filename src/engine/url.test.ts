@@ -42,8 +42,8 @@ describe('readUrl', () => {
   })
 
   it('clamps the density into the range the slider offers', () => {
-    expect(readUrl('?n=99999', D, 'dark').density).toBe(12000)
-    expect(readUrl('?n=10', D, 'dark').density).toBe(1500)
+    expect(readUrl('?n=99999', D, 'dark').density).toBe(24000)
+    expect(readUrl('?n=10', D, 'dark').density).toBe(3000)
     expect(readUrl('?n=abc', D, 'dark').density).toBe(D)
   })
 

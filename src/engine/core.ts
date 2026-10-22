@@ -2,7 +2,7 @@ import * as THREE from 'three'
 
 // The stage drives a fixed pool of N dots. An object uses `count` of them; the rest drift as
 // "dust", a faint far shell that gives the stage depth (the same trick the ivory scenes use).
-export const N = 12000
+export const N = 24000
 
 // every object is centred and scaled so its bounding sphere has this radius
 export const R = 1.9

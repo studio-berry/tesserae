@@ -3,7 +3,9 @@ import * as THREE from 'three'
 // Character sets. Each is ranked by how much ink its glyphs leave, so a dot's brightness picks
 // its character: faint dots read as . , : ; mid ones as letters, bright ones as # % @.
 export const CHARSETS = {
-  letters: { name: 'letters', chars: ".,:;'-~=+*^!/|<>abcdefghijklmnopqrstuvwxyz#%&@$", jitter: 7 },
+  // both cases, digits and brackets, so every tone has a couple of dozen glyphs to pick from and
+  // a patch of one brightness never settles on the same few letters
+  letters: { name: 'letters', chars: ".,:;'`-~=+*^!/\\|<>()[]{}abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789#%&@$", jitter: 20 },
   classic: { name: 'classic', chars: '.:-=+*#%@', jitter: 0.9 },
   dense: { name: 'dense', chars: "`.-':_,^=;><+!rc*/z?sLTv)J7(|Fi{C}fI31tlu[neoZ5Yxjya]2ESwqkP6h9d4VpOGbUAKXHm8RD#$Bg0MNWQ%&@", jitter: 6 },
   binary: { name: 'binary', chars: '01', jitter: 1.2 },
@@ -157,8 +159,10 @@ export function buildAtlas(chars: string, jitter: number): Atlas {
   }
 
   const tex = new THREE.CanvasTexture(cv)
-  tex.minFilter = THREE.LinearFilter
-  tex.generateMipmaps = false
+  // glyphs draw at a fraction of their 64 px tile, so without mips a small letter shimmers and
+  // loses its thin strokes; the tiles' own padding keeps a neighbour from bleeding in
+  tex.minFilter = THREE.LinearMipmapLinearFilter
+  tex.generateMipmaps = true
   // tileUV counts rows down from the canvas top, which is v=0 only when the upload is not flipped
   tex.flipY = false
   return { tex, count: ranked.length, ranked, jitter, cols, rows, tiles, orient: { base, count: ORIENT_COUNT } }

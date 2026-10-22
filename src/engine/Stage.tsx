@@ -1,7 +1,7 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import type { Shape } from '../objects'
+import { GLYPH_FILL, type Shape } from '../objects'
 import { DUST, Mode, N, R, THEMES, TINTS, Theme, TintId, clamp01, mulberry32, paletteInk, smooth } from './core'
 import { Atlas } from './glyphs'
 import { infoStore, stageApi } from './info'
@@ -28,9 +28,12 @@ type Target = {
 }
 
 const LIGHT = new THREE.Vector3(-0.5, 0.6, 0.62).normalize() // view space, from the upper left and a little in front
-// dots and grid keep the size they had before the letters cell grew by 1.6/1.15
-const SIZE_MUL = { letters: 1, dots: 0.52, grid: 1.1 }
+// Dots and grid are sized against the sample pitch, not the letters cell: a dot covers about one
+// pitch and a grid splat about two, so the grid's cells always find ink under them.
+const SIZE_MUL = { letters: 1, dots: 1.04 / GLYPH_FILL, grid: 2.2 / GLYPH_FILL }
 const SHADOW_DOTS = 700
+// the pool is far bigger than the dust needs, so only this many unused dots show as dust
+const DUST_SHOWN = 6000
 const TILT = 0.32
 
 // The same curve the vertex shader uses, so a dot caught mid-flight keeps moving smoothly when the
@@ -51,7 +54,12 @@ function makeTarget(shape: Shape | null, dir: THREE.Vector3, rnd: () => number):
     shape, pos: DUST.slice(), nrm: new Float32Array(N * 3), col: new Float32Array(N * 3),
     size: new Float32Array(N), alpha: new Float32Array(N), order: new Float32Array(N),
   }
-  for (let i = 0; i < N; i++) { t.size[i] = 0.035 + rnd() * 0.04; t.alpha[i] = 0.04 + rnd() * 0.1; t.order[i] = rnd() }
+  const dustKeep = Math.min(1, DUST_SHOWN / Math.max(1, N - (shape?.count ?? 0)))
+  for (let i = 0; i < N; i++) {
+    t.size[i] = 0.035 + rnd() * 0.04
+    t.alpha[i] = rnd() < dustKeep ? 0.04 + rnd() * 0.1 : 0
+    t.order[i] = rnd()
+  }
   if (!shape) return t
   // one glyph size for every object at this density, so the family reads as one family
   const glyph = shape.glyphSize

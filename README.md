@@ -78,7 +78,7 @@ fetches from no other host.
 - **tune**: glyph set (the original five, plus braille, upper, math, arrows, katakana, greek, hex,
   cyrillic, punct and slashes, or your own characters), palette (porcelain, blueprint, terracotta,
   celadon, orchid; each design picks the one it was drawn for, and the swatch with the rainbow ring
-  keeps a model's own colours), density (1.5k–12k glyphs), spin,
+  keeps a model's own colours), density (3k–24k glyphs), spin,
   scatter, and export. **surprise** makes reroll change the glyph set too; **look → edges** lets the
   silhouette take direction glyphs instead of the brightness ramp, the way hand-drawn ASCII art
   reads.
@@ -118,7 +118,7 @@ file
 - `src/objects/worker.ts` builds and samples library and text sources on a background thread, so a
   switch between objects never blocks the page. A dropped file is parsed on the main thread, since
   its textures arrive through the DOM.
-- `src/engine/Stage.tsx` drives a fixed pool of 12,000 dots. The dots move on the GPU: each one
+- `src/engine/Stage.tsx` drives a fixed pool of 24,000 dots. The dots move on the GPU: each one
   holds where it came from, where it is going and when it was released, and `shaders.ts` evaluates
   the spring, the normals and the scan band from the clock, so a frame at rest uploads nothing and
   costs nothing. The object's own mesh is drawn into the depth buffer only, nudged back a hair, so
