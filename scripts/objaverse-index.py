@@ -182,7 +182,12 @@ def build(data: Path, min_score: int, log=print):
     quality, paths, captions, meta = load(data)
     fanart = guard(FANART_STEMS, FANART_WORDS)
     explicit = guard(EXPLICIT_STEMS, EXPLICIT_WORDS | blocked_words(), reach=1)
-    said = lambda u, m: f"{m['name']} {m['tags']} {captions[u]}"
+    def said(u, m):
+        return f"{m['name']} {m['tags']} {captions[u]}"
+
+    # the author ships with every row as its credit, so the word guards read it too
+    def credited(u, m):
+        return f"{said(u, m)} {m['author']}"
 
     steps = [
         ('objaverse++ rows', lambda u, q, m: True),
@@ -202,7 +207,7 @@ def build(data: Path, min_score: int, log=print):
         # the author's own word that it is a character or a person, which Objaverse++ missed
         ('not filed as character or person', lambda u, q, m: not CHARACTER_CATEGORIES & set(m['categories'].split())),
         ('no fan art words', lambda u, q, m: not fanart(said(u, m))),
-        ('no explicit or blocked words', lambda u, q, m: not explicit(said(u, m))),
+        ('no explicit or blocked words', lambda u, q, m: not explicit(credited(u, m))),
         (f'glb <= {MAX_BYTES // 1_000_000} MB, faces <= {MAX_FACES // 1000}K', lambda u, q, m: 0 < m['bytes'] <= MAX_BYTES and m['faces'] <= MAX_FACES),
     ]
     alive = list(quality)
