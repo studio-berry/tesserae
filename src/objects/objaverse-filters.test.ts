@@ -187,6 +187,14 @@ describe('the explicit guard in the build', () => {
     expect(step.keep(good({ title: 'model', caption: 'A model with a cock.' }))).toBe(false)
   })
 
+  it('drops a row whose only refused word is in the author', () => {
+    // the author ships as the credit and the app shows it, so it is judged like the title
+    const step = stepFor('no explicit or blocked words')
+    expect(step.keep(good({ author: 'nsfw_maker' }))).toBe(false)
+    expect(step.keep(good({ author: 'big cock studio' }))).toBe(false)
+    expect(step.keep(good({ author: 'ada' }))).toBe(true)
+  })
+
   it('keeps a title that merely holds the letters of a blocked word', () => {
     // the build and the app have to agree about the title, not only about the caption, and the
     // rule is the whole-word one: a fish called "Seabass" and a "Low Poly Assault Rifle" are
