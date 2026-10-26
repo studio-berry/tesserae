@@ -226,22 +226,34 @@ describe('svgObject', () => {
   })
 })
 
-// The prompt path answers without a key, and that is a promise the docs make. This holds it to the
-// promise: a hosted backend, a stored credential or a second host has to fail here before it can
-// ship, so the claim in README can be trusted.
-describe('the prompt path stays keyless', () => {
-  const sources = import.meta.glob('./{prompt,search,svg}.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+// The prompt path answers without a key, and the chat path keeps its key on the server. That is a
+// promise the docs make, and this holds the source to it: a stored credential, a provider host or a
+// second place a request is made has to fail here before it can ship.
+describe('the prompt path carries no credential', () => {
+  const sources = import.meta.glob('./{prompt,search,svg,generate}.ts', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
   const source = (file: string) => sources[`./${file}`]
 
-  it('reads no key, no endpoint and no browser storage', () => {
-    expect(Object.keys(sources)).toHaveLength(3)
-    for (const [path, text] of Object.entries(sources)) {
-      const file = path.replace('./', '')
-      for (const forbidden of ['localStorage', 'sessionStorage', 'apiKey', 'api_key', 'Authorization', 'import.meta.env', 'fetch(']) {
-        if (file === 'search.ts' && forbidden === 'fetch(') continue // search is where the one network call lives
+  it('reads no key and no browser storage of its own in the search backends', () => {
+    expect(Object.keys(sources)).toHaveLength(4)
+    for (const file of ['prompt.ts', 'search.ts', 'svg.ts']) {
+      const text = source(file)
+      for (const forbidden of ['localStorage', 'sessionStorage', 'apiKey', 'api_key', 'Authorization', 'import.meta.env']) {
         expect(text, `${file} mentions ${forbidden}`).not.toContain(forbidden)
       }
+      if (file === 'search.ts') continue // search is where the one Commons call lives
+      expect(text, `${file} makes a request`).not.toContain('fetch(')
     }
+  })
+
+  it('asks this app for a scene rather than the model, so the key stays on the server', () => {
+    const text = source('generate.ts')
+    for (const forbidden of ['Authorization', 'Bearer', 'api_key', 'apiKey', 'opencode.ai', 'OPENCODE']) {
+      expect(text, `generate.ts mentions ${forbidden}`).not.toContain(forbidden)
+    }
+    // one request, to one place: this app's own endpoint
+    const hosts = [...text.matchAll(/['"](https?:\/\/[^'"]+)['"]/g)].map((m) => m[1])
+    expect(hosts).toEqual([])
+    expect(text).toContain("const ENDPOINT = '/api/scene'")
   })
 
   it('talks to Wikimedia Commons and to nothing else', () => {
