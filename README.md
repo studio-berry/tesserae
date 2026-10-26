@@ -40,6 +40,11 @@ The inputs are not in the repo, and `.cache/` is ignored. The index itself is co
 because it is what the app serves and a rebuild reproduces it byte for byte.
 `docs/objaverse-index.md` has the funnel, the sizes, the licence findings and the title rules.
 
+The same rows can be exported as training data for a prompt-to-shape model: each model sampled
+by the app's own sampler into 4,096 points with normals and colours, in numpy shards beside its
+caption and credit. `npm run export:objaverse -- --limit 200` is a first look, and
+`docs/training-export.md` has the format, the screening rule and the numbers.
+
 ### The credits
 
 - [Objaverse](https://huggingface.co/datasets/allenai/objaverse), by the Allen Institute for AI.
