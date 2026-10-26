@@ -106,7 +106,20 @@ export function runScene(code: string, seed: number): RanScene {
   const verdict = checkCode(code)
   if (!verdict.ok) throw new Error(verdict.reason)
   // strict mode makes `this` undefined at the top of the body, so the global object is not reachable
-  // through it, and the two bindings are the whole world the code gets
+  // through it, and the two bindings are the whole world the code gets.
+  //
+  // Running the writer's code is the point of the feature, so the scan below is suppressed rather
+  // than a pattern to be removed: the string really is untrusted, and four things hold it. The check
+  // above refuses a name that reaches past the namespace before anything runs. The namespace holds
+  // no loader, so no constructor in reach can read a file or a URL. Strict mode leaves no global on
+  // `this`. And the caller runs this in a worker with no document, under a deadline that kills the
+  // worker. The alternative that removes the class of risk is a scene described as data (a list of
+  // primitives and transforms, no code at all); it is recorded in docs/run-log.tsv and not done,
+  // because the measured pass rate belongs to code the model writes, not to a format it would have
+  // to be taught.
+  // This is the line code scanning reports as js/code-injection, and it is not suppressed: the
+  // repo's setup does not honor suppression comments, so the finding stays visible until it is
+  // dismissed after merge. The four rules above are what hold it, and #55 carries the alternative.
   const make = new Function('THREE', 'rng', `'use strict';\n${code}`) as (t: unknown, r: () => number) => unknown
   const made = make(sceneThree(), mulberry32(seed))
   const object = made as THREE.Object3D | null
