@@ -13,6 +13,7 @@ import { LIBRARY } from './objects/library'
 import { ACCEPT } from './objects/formats'
 import { checkTyped, scanWords } from './safety'
 import { creditText } from './objects/credit'
+import { Chat } from './ui/Chat'
 import { Export, ExportItem, exportText } from './ui/Export'
 import { Coach, Frame } from './ui/Frame'
 import { Hud } from './ui/Hud'
@@ -37,6 +38,9 @@ export default function App() {
   const [source, setSource] = useState<Source>(init.source)
   const [text, setText] = useState(init.text)
   const [prompt, setPrompt] = useState(init.prompt)
+  const [chat, setChat] = useState(init.chat)
+  // the composer opens without spending a model call: a prompt only goes out when it is sent
+  const [chatOpen, setChatOpen] = useState(init.source.kind === 'chat')
   const [seed, setSeed] = useState(init.seed)
   const [density, setDensity] = useState(init.density)
   const [draftDensity, setDraftDensity] = useState(init.density)
@@ -120,9 +124,9 @@ export default function App() {
   }, [source, density, seed])
 
   useEffect(() => {
-    const next = writeUrl({ source, text, prompt, seed, density, mode, theme, tint, charset }, defaultDensity(innerWidth, innerHeight))
+    const next = writeUrl({ source, text, prompt, chat, seed, density, mode, theme, tint, charset }, defaultDensity(innerWidth, innerHeight))
     try { history.replaceState(null, '', `${location.pathname}${next}`) } catch { /* sandboxed: sharing via URL just won't work */ }
-  }, [source, text, prompt, seed, density, mode, theme, tint, charset])
+  }, [source, text, prompt, chat, seed, density, mode, theme, tint, charset])
 
   // the canvas dims for one transition, the mode swaps while it is down, and it comes back up: that
   // reads as a crossfade without rendering both modes at once
@@ -146,6 +150,17 @@ export default function App() {
     const verdict = checkTyped(clean)
     if (!verdict.ok) { setError(verdict.reason); return }
     setError(''); setSource({ kind: 'prompt', text: clean }); setSeed(0)
+  }, [])
+
+  // The chat prompt. It is checked here like a typed word, and again at the one gate every source
+  // passes, so a refusal takes the same road as any other failure: the message shows and the
+  // previous object stays.
+  const submitChat = useCallback((raw: string) => {
+    const clean = raw.trim().slice(0, 80)
+    if (!clean) return
+    const verdict = checkTyped(clean)
+    if (!verdict.ok) { setError(verdict.reason); return }
+    setError(''); setChat(clean); setChatOpen(true); setSource({ kind: 'chat', text: clean }); setSeed(0)
   }, [])
 
   const openFiles = useCallback(async (files: File[]) => {
@@ -177,7 +192,7 @@ export default function App() {
     }
   }, [openFiles])
 
-  const pickLibrary = useCallback((id: string) => { setSource({ kind: 'library', id }); setSeed(0) }, [])
+  const pickLibrary = useCallback((id: string) => { setSource({ kind: 'library', id }); setSeed(0); setChatOpen(false) }, [])
   const reroll = useCallback(() => {
     setSeed((s) => s + 1)
     // surprise also changes the glyph set, the way a slot machine changes everything at once
@@ -302,9 +317,10 @@ export default function App() {
           {LIBRARY.map((l) => (
             <button key={l.id} type="button" className={active(l.id) ? 'on' : ''} onClick={() => pickLibrary(l.id)}>{l.name}</button>
           ))}
-          <button type="button" className={source.kind === 'text' ? 'on' : ''} onClick={() => setSource({ kind: 'text', text: text.trim() || 'ascii' })}>text</button>
-          <button type="button" className={source.kind === 'prompt' ? 'on' : ''} onClick={() => setSource({ kind: 'prompt', text: prompt.trim() || 'a lighthouse' })}>prompt</button>
-          <button type="button" className={source.kind === 'file' ? 'on' : ''} onClick={() => fileInput.current?.click()}>{source.kind === 'file' ? 'model' : 'open…'}</button>
+          <button type="button" className={source.kind === 'text' ? 'on' : ''} onClick={() => { setChatOpen(false); setSource({ kind: 'text', text: text.trim() || 'ascii' }) }}>text</button>
+          <button type="button" className={source.kind === 'prompt' ? 'on' : ''} onClick={() => { setChatOpen(false); setSource({ kind: 'prompt', text: prompt.trim() || 'a lighthouse' }) }}>prompt</button>
+          <button type="button" className={chatOpen ? 'on' : ''} onClick={() => setChatOpen((v) => !v)} title="describe something and let a model write it">chat</button>
+          <button type="button" className={source.kind === 'file' ? 'on' : ''} onClick={() => { setChatOpen(false); fileInput.current?.click() }}>{source.kind === 'file' ? 'model' : 'open…'}</button>
           <input ref={fileInput} type="file" accept={ACCEPT} multiple hidden onChange={(e) => { openFiles([...(e.target.files ?? [])]); e.target.value = '' }} />
         </nav>
         <div className="toggles">
@@ -318,11 +334,17 @@ export default function App() {
         {source.kind === 'prompt' && (
           <input className="field type" value={prompt} onChange={(e) => setPrompt(e.target.value)} maxLength={60} placeholder="a lighthouse, or an idea" spellCheck={false} autoFocus aria-label="What to draw" />
         )}
+        {chatOpen && (
+          <Chat
+            value={chat} setValue={setChat} onSubmit={submitChat} onVariant={reroll}
+            error={error} busy={busy} ready={source.kind === 'chat' && !busy}
+          />
+        )}
       </header>
 
       <Hud
         shape={shape} theme={theme} ramp={ramp} onRetry={() => prepare(source, density, seed).then(setShape).catch((err: Error) => setError(err.message))}
-        status={busy ? status || (source.kind === 'prompt' ? 'working out what that looks like…' : 'sampling surface…') : status || HINT}
+        status={busy ? status || (source.kind === 'chat' ? 'asking the scene writer…' : source.kind === 'prompt' ? 'working out what that looks like…' : 'sampling surface…') : status || HINT}
         error={error}
       />
 

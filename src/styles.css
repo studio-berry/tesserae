@@ -183,6 +183,49 @@ input:focus-visible {
   margin-left: 130px;
 }
 
+/* the chat composer takes the header's second row, the way a typed word does, so it never fights
+   the caption, the tune panel or the coach for the same corner */
+.top .chat {
+  flex-basis: 100%;
+  max-width: 560px;
+  margin-left: 130px;
+  display: grid;
+  gap: 5px;
+}
+.top .chat form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.top .chat .field {
+  flex: 1;
+  min-width: 0;
+}
+.chat button {
+  border-color: var(--line);
+}
+.chat button:disabled {
+  opacity: .45;
+  cursor: default;
+}
+.chat .ghost {
+  border-color: transparent;
+  color: var(--muted);
+}
+.chat-line {
+  margin: 0;
+  padding-left: 14px;
+  font-size: 11.5px;
+  color: var(--muted);
+  letter-spacing: .01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat.working .chat-line {
+  color: var(--fg);
+}
+
 /* the caption sits on the stage like a printed plate: eyebrow, title, ramp, one live line */
 .hud {
   position: fixed;
@@ -626,6 +669,10 @@ input[type="range"] {
   }
   .top .type {
     max-width: none;
+  }
+  .top .chat {
+    max-width: none;
+    margin-left: 0;
   }
   .hud {
     left: max(16px, env(safe-area-inset-left, 0px));
