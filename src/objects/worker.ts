@@ -3,10 +3,16 @@ import { mulberry32 } from '../engine/core'
 import { LIBRARY } from './library'
 import { Cloud, Samples, Soup, sampleCloud, sampleSoup } from './sample'
 import { surfaceFrom, frontWeighted } from './soup'
+import { runScene } from './scene.ts'
 import { textObject } from './text'
 
-// What the worker can build on its own: no DOM, no dropped files, no network
-export type Threaded = { kind: 'library'; id: string } | { kind: 'text'; text: string }
+// What the worker can build on its own: no DOM, no dropped files, no network. A written scene is
+// code rather than a source, and the worker is where it runs: no document, no page, and the ask is
+// bounded on the other side.
+export type Threaded =
+  | { kind: 'library'; id: string }
+  | { kind: 'text'; text: string }
+  | { kind: 'scene'; code: string; title: string; detail: string }
 
 // The flattened surface. Typed arrays cross the thread boundary, a BufferGeometry and a texture
 // sampler cannot, so the occluder and the materials are rebuilt on the side that draws them.
@@ -28,6 +34,9 @@ export const build = async (source: Threaded, seed: number): Promise<Packed> => 
     const item = LIBRARY.find((l) => l.id === source.id) ?? LIBRARY[0]
     const built = item.build(mulberry32(seed * 9973 + 1), seed)
     object = built.object; title = built.title; detail = built.detail; twoSided = !!built.twoSided
+  } else if (source.kind === 'scene') {
+    object = runScene(source.code, seed).object
+    title = source.title; detail = source.detail
   } else {
     object = await textObject(source.text)
     title = `“${source.text}”`; detail = 'extruded type'; flat = true

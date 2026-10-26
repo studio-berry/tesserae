@@ -1,7 +1,9 @@
 import * as THREE from 'three'
 import { mulberry32 } from '../engine/core'
 import { checkTyped } from '../safety'
+import { chatStore, findChat } from './generate.ts'
 import { fromPrompt, normalisePrompt, type Provenance } from './prompt'
+import { runScene } from './scene.ts'
 import { Cloud, Samples, Soup, sampleCloud, sampleSoup } from './sample'
 import { standUpright } from './orient'
 import { frontWeighted, surfaceFrom } from './soup'
@@ -13,7 +15,17 @@ export type Source =
   | { kind: 'library'; id: string }
   | { kind: 'text'; text: string }
   | { kind: 'prompt'; text: string }
+  | { kind: 'chat'; text: string }
   | { kind: 'file'; name: string; object: THREE.Object3D; bytes: number }
+
+// Where a written scene came from. A generated object has no author to credit, but it does have a
+// writer, and the caption names it the way it names a searched model's author: the same line, so a
+// reader always knows what made the thing on screen.
+const SCENE_HOME = 'https://opencode.ai/docs/go'
+
+// What the chat source says when no scene arrives. It never falls back to another backend: the
+// prompt asked for a scene, and a built form would be a different answer to the question.
+export const NO_WRITER = 'The scene writer is not available here. Try the prompt tab.'
 
 // What the stage draws: N evenly spread surface samples plus everything needed to light them
 export type Shape = Samples & {
@@ -32,6 +44,11 @@ export type Shape = Samples & {
   flat: boolean // 2D sources face the viewer and get no depth
   source: Provenance | null // where a searched model came from
 }
+
+// How long a written scene may hold the worker. A scene is a few thousand triangles built from
+// primitives, which takes well under a second; anything past this is a loop or a runaway geometry,
+// and the worker is killed rather than waited on.
+const SCENE_DEADLINE_MS = 8_000
 
 // Glyph size depends on density alone, never on the object's own area, so the type does not
 // change when the object does; 4.8 keeps the tightest library surface at 1.15x its spacing
@@ -87,6 +104,7 @@ export const sourceKey = (s: Source, seed: number) => {
   if (s.kind === 'library') return `lib:${s.id}:${seed}`
   if (s.kind === 'text') return `text:${s.text}`
   if (s.kind === 'prompt') return `prompt:${normalisePrompt(s.text)}:${seed}`
+  if (s.kind === 'chat') return `chat:${normalisePrompt(s.text)}:${seed}`
   return `file:${s.object.uuid}`
 }
 
@@ -150,13 +168,56 @@ const ask = (source: Threaded, seed: number, count: number) =>
       }
     }
     const id = ++seq
-    waiting.set(id, { ok, bad })
-    try { w.postMessage({ id, source, seed, count }) } catch (err) { waiting.delete(id); bad(err as Error) }
+    // A scene runs code nobody read first, so the ask is bounded: a loop that never ends, or a
+    // geometry that will not build, costs this worker rather than the page. The other sources are
+    // the app's own code and need no deadline.
+    const deadline = source.kind === 'scene'
+      ? setTimeout(() => {
+          if (!waiting.has(id)) return
+          waiting.delete(id)
+          bad(new Error('that scene took too long to build'))
+          stop(new Error('The background builder stopped.'))
+        }, SCENE_DEADLINE_MS)
+      : null
+    waiting.set(id, {
+      ok: (p) => { if (deadline) clearTimeout(deadline); ok(p) },
+      bad: (e) => { if (deadline) clearTimeout(deadline); bad(e) },
+    })
+    try { w.postMessage({ id, source, seed, count }) } catch (err) { waiting.delete(id); if (deadline) clearTimeout(deadline); bad(err as Error) }
   })
 
-const offThread = (src: Source): src is Threaded => src.kind === 'library' || src.kind === 'text'
+// The two sources the worker can build from a description of themselves. A chat source is not one:
+// its code is fetched here and only its build is asked for off the thread.
+type OffThread = Extract<Source, { kind: 'library' } | { kind: 'text' }>
+const offThread = (src: Source): src is OffThread => src.kind === 'library' || src.kind === 'text'
+
+// The scene for a chat prompt, drawn.
+//
+// The code comes back from the endpoint, and running it is the worker's job: the worker has no
+// document, and the ask is bounded, so a scene that never returns costs one deadline rather than
+// the page. A worker that cannot start or has died falls back to running the code here, which is
+// the same runner and the same sampler.
+const drawChat = async (src: { kind: 'chat'; text: string }, seed: number, count: number): Promise<Made> => {
+  const written = await findChat(src.text, seed)
+  // the reason the writer gave, when it gave one: "not reachable" and "could not make that one" are
+  // different sentences, and both are better than a shrug
+  if (!written) throw new Error(chatStore.get().why || NO_WRITER)
+  const job = { kind: 'scene' as const, code: written.code, title: written.title, detail: `scene · ${written.model}` }
+  const source: Provenance = { author: written.model || 'a scene writer', licence: 'written for this prompt', url: SCENE_HOME }
+  let packed: (Packed & { samples: Samples }) | null = null
+  if (threaded) {
+    try { packed = await ask(job, seed, count) } catch { /* the same build here */ }
+  }
+  if (!packed) {
+    const { object } = runScene(written.code, seed)
+    const { soup, cloud } = surfaceFrom(object)
+    packed = { soup, cloud, title: written.title, detail: job.detail, twoSided: false, flat: false, samples: localSample(soup, cloud, false, count, seed) }
+  }
+  return { ...packed, source }
+}
 
 const build = async (src: Source, seed: number, count: number): Promise<Made> => {
+  if (src.kind === 'chat') return drawChat(src, seed, count)
   if (offThread(src)) {
     let packed: (Packed & { samples: Samples }) | null = null
     if (threaded) {

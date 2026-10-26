@@ -24,6 +24,12 @@ describe('readUrl', () => {
     expect(readUrl('?text=hello', D, 'dark').text).toBe('hello')
   })
 
+  it('reads a described scene, and it outranks the searched prompt it shares a name with', () => {
+    const s = readUrl('?chat=a+fox+on+a+wall&prompt=a+fox', D, 'dark')
+    expect(s.source).toEqual({ kind: 'chat', text: 'a fox on a wall' })
+    expect(s.chat).toBe('a fox on a wall')
+  })
+
   it('ignores an unknown object, mode, glyph set or tint rather than rendering nothing', () => {
     const s = readUrl('?o=nosuch&mode=wire&glyphs=runes&ink=chartreuse&theme=sepia', D, 'light')
     expect(s.source).toEqual({ kind: 'library', id: 'teapot' })
@@ -44,7 +50,7 @@ describe('readUrl', () => {
 
 describe('writeUrl', () => {
   it('survives a round trip for every source', () => {
-    for (const search of ['?o=helix&seed=2', '?text=a word', '?prompt=a lighthouse', '?n=8000&mode=dots&ink=ember&glyphs=dense']) {
+    for (const search of ['?o=helix&seed=2', '?text=a word', '?prompt=a lighthouse', '?chat=a fox&seed=3', '?n=8000&mode=dots&ink=ember&glyphs=dense']) {
       const s = readUrl(search, D, 'dark')
       const again = readUrl(writeUrl(s, D), D, 'dark')
       expect(again.source).toEqual(s.source)
