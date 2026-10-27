@@ -16,6 +16,7 @@
 //
 // docs/training-export.md has the format, the numbers and how to read it from python.
 
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
@@ -50,17 +51,26 @@ const parseArgs = (argv: string[]): Args => {
   const a: Args = { index: SHIPPED, out: '.cache/training/objaverse', points: 4096, shard: 1000, limit: 0, workers: 6 }
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i]
-    if (k === '--index') a.index = argv[++i]
-    else if (k === '--screened') a.screened = argv[++i]
-    else if (k === '--out') a.out = argv[++i]
-    else if (k === '--points') a.points = Number(argv[++i])
-    else if (k === '--shard') a.shard = Number(argv[++i])
-    else if (k === '--limit') a.limit = Number(argv[++i])
-    else if (k === '--workers') a.workers = Number(argv[++i])
+    const value = () => {
+      const v = argv[++i]
+      if (v === undefined || v.startsWith('--')) throw new Error(`${k} needs a value`)
+      return v
+    }
+    // a whole number, at least `min`: a typo stops the run rather than turning into "no limit"
+    const count = (min: number) => {
+      const v = value()
+      const n = Number(v)
+      if (!/^\d+$/.test(v) || n < min) throw new Error(`${k} must be a whole number of at least ${min}, not ${v}`)
+      return n
+    }
+    if (k === '--index') a.index = value()
+    else if (k === '--screened') a.screened = value()
+    else if (k === '--out') a.out = value()
+    else if (k === '--points') a.points = count(1)
+    else if (k === '--shard') a.shard = count(1)
+    else if (k === '--limit') a.limit = count(0)
+    else if (k === '--workers') a.workers = count(1)
     else throw new Error(`unknown option ${k}`)
-  }
-  for (const key of ['points', 'shard', 'workers'] as const) {
-    if (!(a[key] > 0)) throw new Error(`--${key} must be a positive number`)
   }
   return a
 }
@@ -124,15 +134,22 @@ const exportRow = async (row: IndexRow, revision: string, points: number): Promi
   // glTF is Y up by its spec, and standUpright reads "standing" as taller than wide, so it turns
   // a bus or a rifle onto its end: on the first 24 rows it stood both buses and the rifle up.
   // A generator learns the pose of whatever it is shown, so the data keeps the file's own.
-  const { soup } = soupFrom(scene)
-  if (!soup || soup.tris === 0) return { outcome: fail('no surface'), bytes }
-  // the unit sphere rather than the stage's radius: a model trains on unit coordinates, and the
-  // stage scales whatever it is given to its own radius anyway
-  normalize(soup.pos, 1)
-  const s = sampleSoup(soup, points, mulberry32(seedOf(row.uid)))
-  if (s.count !== points) return { outcome: fail(`sampled ${s.count} of ${points} points`), bytes }
-  for (const v of s.pos) if (!Number.isFinite(v)) return { outcome: fail('a point is not finite'), bytes }
-  return { outcome: { ok: true, sampled: { pos: s.pos, nrm: s.nrm, col: s.col, tris, textured: stripped.textured } }, bytes }
+  // the sampler is seeded by uid, so a throw here would repeat on every rerun: it is caught and
+  // named, rather than losing the shard and stopping the run at the same row each time
+  try {
+    const { soup } = soupFrom(scene)
+    if (!soup || soup.tris === 0) return { outcome: fail('no surface'), bytes }
+    // the unit sphere rather than the stage's radius: a model trains on unit coordinates, and the
+    // stage scales whatever it is given to its own radius anyway
+    normalize(soup.pos, 1)
+    const s = sampleSoup(soup, points, mulberry32(seedOf(row.uid)))
+    if (s.count !== points) return { outcome: fail(`sampled ${s.count} of ${points} points`), bytes }
+    for (const v of s.pos) if (!Number.isFinite(v)) return { outcome: fail('a point is not finite'), bytes }
+    for (const v of s.nrm) if (!Number.isFinite(v)) return { outcome: fail('a normal is not finite'), bytes }
+    return { outcome: { ok: true, sampled: { pos: s.pos, nrm: s.nrm, col: s.col, tris, textured: stripped.textured } }, bytes }
+  } catch (err) {
+    return { outcome: fail(`sample: ${(err as Error).message}`), bytes }
+  }
 }
 
 // The rows a shard holds: the index order, cut into fixed runs, so shard k always means the same
@@ -245,6 +262,10 @@ const main = async () => {
     points: args.points,
     shard: args.shard,
     screened: args.screened ? resolve(args.screened) : null,
+    // the rows themselves, so a resumed run with another --limit or screening list is refused
+    // rather than skipping a shard that holds a different set of rows
+    rows: rows.length,
+    uids: createHash('sha256').update(rows.map((r) => r.uid).join('\n')).digest('hex'),
     channels: { points: ['x', 'y', 'z', 'nx', 'ny', 'nz'], rgb: ['r', 'g', 'b'] },
     space: "unit sphere, centred on the bounding box, in the file's own glTF axes (Y up by the spec)",
     sampler: 'src/objects/sample.ts sampleSoup: blue noise, Morton ordered, seeded by uid',
@@ -253,9 +274,10 @@ const main = async () => {
   const metaPath = join(out, 'meta.json')
   if (existsSync(metaPath)) {
     const was = JSON.parse(await readFile(metaPath, 'utf8')) as typeof meta
-    for (const key of ['format', 'index', 'points', 'shard', 'screened'] as const) {
+    for (const key of ['format', 'index', 'points', 'shard', 'screened', 'rows', 'uids'] as const) {
       if (JSON.stringify(was[key]) !== JSON.stringify(meta[key])) {
-        throw new Error(`${out} holds an export with a different ${key}; use another --out`)
+        const what = key === 'rows' || key === 'uids' ? 'set of rows (another --limit or screening list)' : key
+        throw new Error(`${out} holds an export with a different ${what}; use another --out`)
       }
     }
   } else {

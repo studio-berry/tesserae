@@ -63,7 +63,8 @@ of `--shard` rows (default 1,000):
 
 A shard is written whole and its manifest last, so a stopped run resumes at the first shard
 without a manifest. A run into a folder that holds a different export (another index, point
-count, shard size or screening list) is refused rather than mixed.
+count, shard size, screening list, or set of rows, such as another `--limit`) is refused rather
+than mixed: `meta.json` keeps the row count and a sha256 of the uids in order.
 
 ## Reading it
 
