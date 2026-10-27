@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { alignFront, alignUp, applyOrientation, bottomFlatness, extentsOf, orient, standing } from './orient'
+import { alignFront, alignUp, applyOrientation, bottomFlatness, extentsOf, orient, standing, standUpright } from './orient'
 import { surfaceFrom } from './soup'
 
 // A box of points, standing on a face, in a given orientation.
@@ -270,6 +270,47 @@ describe('applyOrientation', () => {
     const before = mesh.quaternion.clone()
     applyOrientation(root, { quaternion: new THREE.Quaternion(), confidence: 0 })
     expect(mesh.quaternion.angleTo(before)).toBeCloseTo(0, 6)
+  })
+})
+
+describe('standUpright', () => {
+  // Every source meets the contract, the readme says, and two backends were handing over a model
+  // that had never been looked at: a Commons stl, whose up axis is whatever the uploader
+  // exported, and a dropped file from any tool at all.
+  const lying = () => {
+    const g = new THREE.BoxGeometry(1, 3, 1)
+    g.applyQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2))
+    const root = new THREE.Group()
+    root.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial()))
+    return root
+  }
+
+  const extents = (root: THREE.Object3D) => {
+    const pos = surfaceFrom(root).soup!.pos
+    let y0 = Infinity, y1 = -Infinity, x0 = Infinity, x1 = -Infinity
+    for (let i = 0; i < pos.length; i += 3) {
+      x0 = Math.min(x0, pos[i]); x1 = Math.max(x1, pos[i])
+      y0 = Math.min(y0, pos[i + 1]); y1 = Math.max(y1, pos[i + 1])
+    }
+    return { w: x1 - x0, h: y1 - y0 }
+  }
+
+  it('stands a model that arrived on its side', () => {
+    const root = lying()
+    expect(extents(root).w).toBeGreaterThan(extents(root).h)
+    standUpright(root)
+    const after = extents(root)
+    expect(after.h).toBeGreaterThan(after.w * 2)
+  })
+
+  it('does nothing the second time, so a re-render does not keep turning it', () => {
+    const root = lying()
+    standUpright(root)
+    const once = extents(root)
+    standUpright(root)
+    const twice = extents(root)
+    expect(twice.w).toBeCloseTo(once.w, 6)
+    expect(twice.h).toBeCloseTo(once.h, 6)
   })
 })
 

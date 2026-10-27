@@ -70,4 +70,20 @@ describe('objaverseIndex', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('not json')) as unknown as typeof fetch)
     expect(await objaverseIndex()).toBeNull()
   })
+
+  it('answers null when the response does not name the build that wrote it', async () => {
+    // The version is what says which build produced a response, so an index without one is a
+    // response nobody can place and the backend is skipped rather than drawing half of it
+    const untitled = { ...index, version: '' }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(untitled))) as unknown as typeof fetch)
+    expect(await objaverseIndex()).toBeNull()
+  })
+
+  it('answers null when the response claims more rows than it holds', async () => {
+    // a cache that served a body cut short keeps the row count of the whole file while the data
+    // is short of it, and a model drawn from half an index is worse than no model at all
+    const partial = { ...index, rows: 20_000 }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(partial))) as unknown as typeof fetch)
+    expect(await objaverseIndex()).toBeNull()
+  })
 })

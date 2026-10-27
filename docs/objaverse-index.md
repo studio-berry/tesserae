@@ -11,7 +11,7 @@ makes, because every source is read at a pinned commit.
 
 ```ts
 type Index = {
-  version: string   // the build id, so a stale cache can be told from a fresh one
+  version: string   // the id of the build that wrote it, checked when the index is loaded
   rows: number
   revisions: Record<string, string>  // a dataset, and the commit the build read
   data: IndexRow[]
@@ -54,16 +54,16 @@ This is the real run against the pinned data, at the default `score >= 3`:
 | not a figure | 168,707 |
 | not filed as character or person | 155,611 |
 | no fan art words | 147,838 |
-| no explicit or blocked words | 147,706 |
-| not on the reviewed denylist | 147,662 |
-| not flagged as explicit | 147,657 |
-| glb <= 8 MB, faces <= 200K | 92,296 |
+| no explicit or blocked words | 147,236 |
+| not on the reviewed denylist | 147,192 |
+| not flagged as explicit | 147,187 |
+| glb <= 8 MB, faces <= 200K | 92,002 |
 
 Every objaverse++ row is in object-paths and has metadata, so the first three steps cost
 nothing. The licence step is the big one: 93,281 rows are CC BY-NC, CC BY-NC-SA, CC BY-SA or
 CC0, and none of them may ship.
 
-The size filter runs last, where the python prototype had it, and it drops 55,361 rows. The
+The size filter runs last, where the python prototype had it, and it drops 55,185 rows. The
 order matters: it is the last step so the other filters are not asked to read the metadata of
 rows the size filter would have dropped anyway.
 
@@ -250,7 +250,7 @@ npm run index:objaverse:report   # prints the funnel and the sizes, writes nothi
 
 The build reads the pinned commits and checks the sha256 of each download, so the same inputs
 give the same file. The index in the tree is sha256
-`83d6c74d3f9c360b9e45dc6d826415a32b10865892932f90b3ccadeef63ce596`, and a rebuild from the same
+`6506de9c737d1ecbbdec503816e5e26bfb9754f216dd93e02b7bd470837e3fac`, and a rebuild from the same
 data gives that file byte for byte.
 
 The hash belongs to the filters as well as the data, because the filters decide which rows
