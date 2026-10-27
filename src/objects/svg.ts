@@ -351,9 +351,24 @@ function area(geo: THREE.BufferGeometry) {
   return sum
 }
 
+// The runs whose tags are not drawn: comments, CDATA and scripts. One pass of removal can join the
+// halves around a removed run into a new opener (`<!-<!-- x -->- y -->`), so the removal repeats
+// until nothing changes. A run left open eats the rest of the file, the way a parser would read it,
+// and a closing script tag may carry anything before its `>` (`</script foo>`), as a browser allows.
+const HIDDEN_RUNS = /<!--[\s\S]*?(?:-->|$)|<!\[CDATA\[[\s\S]*?(?:\]\]>|$)|<script\b[\s\S]*?(?:<\/script\b[^>]*>|$)/gi
+
+const unhidden = (text: string) => {
+  let body = text
+  for (let before = ''; before !== body; ) {
+    before = body
+    body = body.replace(HIDDEN_RUNS, ' ')
+  }
+  return body
+}
+
 export function svgObject(text: string): THREE.Object3D | null {
   if (text.length > 2_000_000) return null
-  const body = text.replace(/<!--[\s\S]*?-->/g, '').replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '').replace(/<script[\s\S]*?<\/script\s*>/gi, '')
+  const body = unhidden(text)
   const shapePath = new THREE.ShapePath()
   const stack: { paint: Paint; matrix: Affine }[] = []
   let now = { paint: { fill: '#000', skip: false } as Paint, matrix: ONE }

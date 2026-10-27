@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { findDrawing, findFiles, findModel } from './search'
 
+// A request is to a host when its parsed hostname is that host: a substring test would also match
+// a look-alike such as upload.wikimedia.org.example.com.
+const onHost = (url: string, host: string) => {
+  try {
+    return new URL(url).hostname === host
+  } catch {
+    return false
+  }
+}
+
 // The stub is the same shape the prompt test uses, so both suites read the network the same way.
 const stubFetch = (route: (url: string) => { json?: unknown; text?: string; status?: number } | null) => {
   const calls: string[] = []
@@ -75,13 +85,13 @@ describe('findModel', () => {
           file('Anchor.stl', 2, 'https://upload.wikimedia.org/anchor.stl'),
         ]) }
       }
-      if (url.includes('upload.wikimedia.org')) return { text: TRIANGLE }
+      if (onHost(url, 'upload.wikimedia.org')) return { text: TRIANGLE }
       return null
     })
     const result = await findModel('anchor')
     expect(result?.title).toBe('Anchor')
     // the refused hit is never downloaded, so the search moves on without paying for it
-    expect(calls.filter((c) => c.includes('upload.wikimedia.org'))).toEqual(['https://upload.wikimedia.org/anchor.stl'])
+    expect(calls.filter((c) => onHost(c, 'upload.wikimedia.org'))).toEqual(['https://upload.wikimedia.org/anchor.stl'])
   })
 
   it('skips a hit whose description is refused', async () => {
@@ -94,7 +104,7 @@ describe('findModel', () => {
           file('Anchor solid.stl', 2, 'https://upload.wikimedia.org/solid.stl'),
         ]) }
       }
-      if (url.includes('upload.wikimedia.org')) return { text: TRIANGLE }
+      if (onHost(url, 'upload.wikimedia.org')) return { text: TRIANGLE }
       return null
     })
     const result = await findModel('anchor')
@@ -109,7 +119,7 @@ describe('findModel', () => {
           file('Anchor.stl', 2, 'https://upload.wikimedia.org/anchor.stl'),
         ]) }
       }
-      if (url.includes('upload.wikimedia.org')) return { text: TRIANGLE }
+      if (onHost(url, 'upload.wikimedia.org')) return { text: TRIANGLE }
       return null
     })
     const result = await findModel('anchor')
@@ -124,7 +134,7 @@ describe('findModel', () => {
       return null
     })
     expect(await findModel('pikachu')).toBeNull()
-    expect(calls.filter((c) => c.includes('upload.wikimedia.org'))).toHaveLength(0)
+    expect(calls.filter((c) => onHost(c, 'upload.wikimedia.org'))).toHaveLength(0)
   })
 
   it('skips a hit whose raw name is refused, because the credit link is built from it', async () => {
@@ -135,7 +145,7 @@ describe('findModel', () => {
           file('Anchor.stl', 2, 'https://upload.wikimedia.org/anchor.stl'),
         ]) }
       }
-      if (url.includes('upload.wikimedia.org')) return { text: TRIANGLE }
+      if (onHost(url, 'upload.wikimedia.org')) return { text: TRIANGLE }
       return null
     })
     const result = await findModel('anchor')
@@ -147,7 +157,7 @@ describe('findModel', () => {
       if (url.includes('filetype%3A3d')) {
         return { json: pages([file('Geodesic dome.stl', 1, 'https://upload.wikimedia.org/geodesic.stl')]) }
       }
-      if (url.includes('upload.wikimedia.org')) return { text: TRIANGLE }
+      if (onHost(url, 'upload.wikimedia.org')) return { text: TRIANGLE }
       return null
     })
     const result = await findModel('geodesic')
@@ -164,12 +174,12 @@ describe('findDrawing', () => {
           file('Anchor.svg', 2, 'https://upload.wikimedia.org/anchor.svg', { mime: 'image/svg+xml' } as never),
         ]) }
       }
-      if (url.includes('upload.wikimedia.org')) return { text: SVG }
+      if (onHost(url, 'upload.wikimedia.org')) return { text: SVG }
       return null
     })
     const drawing = await findDrawing('anchor')
     expect(drawing?.title).toBe('Anchor')
-    expect(calls.filter((c) => c.includes('upload.wikimedia.org'))).toEqual(['https://upload.wikimedia.org/anchor.svg'])
+    expect(calls.filter((c) => onHost(c, 'upload.wikimedia.org'))).toEqual(['https://upload.wikimedia.org/anchor.svg'])
   })
 
   it('skips a drawing whose description is refused', async () => {
@@ -180,7 +190,7 @@ describe('findDrawing', () => {
           file('Anchor rose.svg', 2, 'https://upload.wikimedia.org/rose.svg'),
         ]) }
       }
-      if (url.includes('upload.wikimedia.org')) return { text: SVG }
+      if (onHost(url, 'upload.wikimedia.org')) return { text: SVG }
       return null
     })
     const drawing = await findDrawing('anchor')
