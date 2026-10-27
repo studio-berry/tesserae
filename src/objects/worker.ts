@@ -3,10 +3,16 @@ import { mulberry32 } from '../engine/core'
 import { LIBRARY } from './library'
 import { Cloud, Samples, Soup, sampleCloud, sampleSoup } from './sample'
 import { surfaceFrom, frontWeighted } from './soup'
+import { lockdown, runScene } from './scene.ts'
 import { textObject } from './text'
 
-// What the worker can build on its own: no DOM, no dropped files, no network
-export type Threaded = { kind: 'library'; id: string } | { kind: 'text'; text: string }
+// What the worker can build on its own: no DOM, no dropped files, no network. A written scene is
+// code rather than a source, and only the scene worker runs it: no document, no page, locked down,
+// and the ask is bounded on the other side.
+export type Threaded =
+  | { kind: 'library'; id: string }
+  | { kind: 'text'; text: string }
+  | { kind: 'scene'; code: string; title: string; detail: string }
 
 // The flattened surface. Typed arrays cross the thread boundary, a BufferGeometry and a texture
 // sampler cannot, so the occluder and the materials are rebuilt on the side that draws them.
@@ -28,6 +34,11 @@ export const build = async (source: Threaded, seed: number): Promise<Packed> => 
     const item = LIBRARY.find((l) => l.id === source.id) ?? LIBRARY[0]
     const built = item.build(mulberry32(seed * 9973 + 1), seed)
     object = built.object; title = built.title; detail = built.detail; twoSided = !!built.twoSided
+  } else if (source.kind === 'scene') {
+    // written code runs in the locked-down scene worker or nowhere: not in the builder, not on the page
+    if (typeof document !== 'undefined' || typeof self === 'undefined' || self.name !== 'scene') throw new Error('a written scene runs only in the scene worker')
+    object = runScene(source.code, seed).object
+    title = source.title; detail = source.detail
   } else {
     object = await textObject(source.text)
     title = `“${source.text}”`; detail = 'extruded type'; flat = true
@@ -71,5 +82,10 @@ const run = async ({ data }: MessageEvent<Job>) => {
   }
 }
 
-// this module is also the main-thread fallback; only the copy without a document listens for jobs
-if (typeof self !== 'undefined' && typeof document === 'undefined') self.onmessage = run
+// this module is also the main-thread fallback for the app's own sources; only a copy without a
+// document listens for jobs. The copy named "scene" runs written code and nothing else, so it gives
+// up the Function constructors and the network before its first job.
+if (typeof self !== 'undefined' && typeof document === 'undefined') {
+  if (self.name === 'scene') lockdown()
+  self.onmessage = run
+}

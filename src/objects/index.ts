@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { N, mulberry32 } from '../engine/core'
 import { checkTyped } from '../safety'
+import { chatStore, findChat } from './generate.ts'
 import { fromPrompt, normalisePrompt, type Provenance } from './prompt'
 import { Cloud, Samples, Soup, sampleCloud, sampleSoup } from './sample'
 import { standUpright } from './orient'
@@ -13,7 +14,17 @@ export type Source =
   | { kind: 'library'; id: string }
   | { kind: 'text'; text: string }
   | { kind: 'prompt'; text: string }
+  | { kind: 'chat'; text: string }
   | { kind: 'file'; name: string; object: THREE.Object3D; bytes: number }
+
+// Where a written scene came from. A generated object has no author to credit, but it does have a
+// writer, and the caption names it the way it names a searched model's author: the same line, so a
+// reader always knows what made the thing on screen.
+const SCENE_HOME = 'https://opencode.ai/docs/go'
+
+// What the chat source says when no scene arrives. It never falls back to another backend: the
+// prompt asked for a scene, and a built form would be a different answer to the question.
+export const NO_WRITER = 'The scene writer is not available here. Try the prompt tab.'
 
 // What the stage draws: N evenly spread surface samples plus everything needed to light them
 export type Shape = Samples & {
@@ -33,6 +44,11 @@ export type Shape = Samples & {
   flat: boolean // 2D sources face the viewer and get no depth
   source: Provenance | null // where a searched model came from
 }
+
+// How long a written scene may hold the worker. A scene is a few thousand triangles built from
+// primitives, which takes well under a second; anything past this is a loop or a runaway geometry,
+// and the worker is killed rather than waited on.
+const SCENE_DEADLINE_MS = 8_000
 
 // Glyph size depends on density alone, never on the object's own area, so the type does not
 // change when the object does. The cell is 1.45 times the pitch the samples sit at, 4.17/sqrt(count)
@@ -102,6 +118,7 @@ export const sourceKey = (s: Source, seed: number) => {
   if (s.kind === 'library') return `lib:${s.id}:${seed}`
   if (s.kind === 'text') return `text:${s.text}`
   if (s.kind === 'prompt') return `prompt:${normalisePrompt(s.text)}:${seed}`
+  if (s.kind === 'chat') return `chat:${normalisePrompt(s.text)}:${seed}`
   return `file:${s.object.uuid}`
 }
 
@@ -129,49 +146,92 @@ const localSample = (soup: Soup | null, cloud: Cloud | null, flat: boolean, coun
   return sampleCloud(cloud ?? { n: 0, pos: new Float32Array(0), nrm: null, col: null }, count, rng)
 }
 
-let thread: Worker | null = null
-let threaded = typeof window !== 'undefined' && typeof Worker !== 'undefined'
+// Two workers, each started on first use. The builder runs the app's own sources. The scene worker
+// runs written code and nothing else: it locks itself down before its first job (`lockdown` in
+// scene.ts), which the builder could not afford, since its own code may need what is taken away.
+const workersWork = typeof window !== 'undefined' && typeof Worker !== 'undefined'
+let threaded = workersWork
+type Lane = { thread: Worker | null; waiting: Map<number, { ok: (p: Packed & { samples: Samples }) => void; bad: (e: Error) => void }> }
+const builder: Lane = { thread: null, waiting: new Map() }
+const scenes: Lane = { thread: null, waiting: new Map() }
 let seq = 0
-const waiting = new Map<number, { ok: (p: Packed & { samples: Samples }) => void; bad: (e: Error) => void }>()
 
-const stop = (why: Error) => {
-  for (const w of waiting.values()) w.bad(why)
-  waiting.clear()
-  thread?.terminate()
-  thread = null
+const stop = (lane: Lane, why: Error) => {
+  for (const w of lane.waiting.values()) w.bad(why)
+  lane.waiting.clear()
+  lane.thread?.terminate()
+  lane.thread = null
 }
 
-const start = () => {
-  const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
+const start = (lane: Lane, name: string) => {
+  const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module', name })
   w.onmessage = ({ data }: MessageEvent<Answer>) => {
-    const job = waiting.get(data.id)
+    const job = lane.waiting.get(data.id)
     if (!job) return
-    waiting.delete(data.id)
+    lane.waiting.delete(data.id)
     if ('error' in data) job.bad(new Error(data.error))
     else job.ok({ ...data.packed, samples: data.samples })
   }
-  w.onerror = () => stop(new Error('The background builder stopped.'))
+  w.onerror = () => stop(lane, new Error('The background builder stopped.'))
   return w
 }
 
 const ask = (source: Threaded, seed: number, count: number) =>
   new Promise<Packed & { samples: Samples }>((ok, bad) => {
-    let w = thread
+    const isScene = source.kind === 'scene'
+    const lane = isScene ? scenes : builder
+    let w = lane.thread
     if (!w) {
-      try { w = thread = start() } catch {
-        threaded = false
+      try { w = lane.thread = start(lane, isScene ? 'scene' : 'builder') } catch {
+        if (!isScene) threaded = false
         bad(new Error('This browser cannot start the background builder.'))
         return
       }
     }
     const id = ++seq
-    waiting.set(id, { ok, bad })
-    try { w.postMessage({ id, source, seed, count }) } catch (err) { waiting.delete(id); bad(err as Error) }
+    // A scene runs code nobody read first, so the ask is bounded: a loop that never ends, or a
+    // geometry that will not build, costs the scene worker rather than the page. The other sources
+    // are the app's own code and need no deadline.
+    const deadline = isScene
+      ? setTimeout(() => {
+          if (!lane.waiting.has(id)) return
+          lane.waiting.delete(id)
+          bad(new Error('that scene took too long to build'))
+          stop(lane, new Error('The scene worker stopped.'))
+        }, SCENE_DEADLINE_MS)
+      : null
+    lane.waiting.set(id, {
+      ok: (p) => { if (deadline) clearTimeout(deadline); ok(p) },
+      bad: (e) => { if (deadline) clearTimeout(deadline); bad(e) },
+    })
+    try { w.postMessage({ id, source, seed, count }) } catch (err) { lane.waiting.delete(id); if (deadline) clearTimeout(deadline); bad(err as Error) }
   })
 
-const offThread = (src: Source): src is Threaded => src.kind === 'library' || src.kind === 'text'
+// The two sources the worker can build from a description of themselves. A chat source is not one:
+// its code is fetched here and only its build is asked for off the thread.
+type OffThread = Extract<Source, { kind: 'library' } | { kind: 'text' }>
+const offThread = (src: Source): src is OffThread => src.kind === 'library' || src.kind === 'text'
+
+// The scene for a chat prompt, drawn.
+//
+// The code comes back from the endpoint, and running it is the scene worker's job, never this
+// thread's: the worker has no document, no Function constructor and no network, and the ask is
+// bounded, so a scene that never returns costs one deadline rather than the page. A scene that
+// fails, runs out of time, or finds no worker to run in is reported as that, not run here instead.
+const drawChat = async (src: { kind: 'chat'; text: string }, seed: number, count: number): Promise<Made> => {
+  const written = await findChat(src.text, seed)
+  // the reason the writer gave, when it gave one: "not reachable" and "could not make that one" are
+  // different sentences, and both are better than a shrug
+  if (!written) throw new Error(chatStore.get().why || NO_WRITER)
+  if (!workersWork) throw new Error('This browser cannot run a written scene safely.')
+  const job = { kind: 'scene' as const, code: written.code, title: written.title, detail: `scene · ${written.model}` }
+  const source: Provenance = { author: written.model || 'a scene writer', licence: 'written for this prompt', url: SCENE_HOME }
+  const packed = await ask(job, seed, count)
+  return { ...packed, source }
+}
 
 const build = async (src: Source, seed: number, count: number): Promise<Made> => {
+  if (src.kind === 'chat') return drawChat(src, seed, count)
   if (offThread(src)) {
     let packed: (Packed & { samples: Samples }) | null = null
     if (threaded) {

@@ -1,9 +1,9 @@
 # gen-ascii
 
-Render any 3D object as living ASCII. Pick a built-in object, type a word, describe something, or
-drop a model file, and it assembles out of drifting dust as thousands of characters lit like a real
-surface: the side facing the light takes heavy glyphs (`# % @`), the shadow side light ones (`. , :`),
-and the far side is hidden as if the object were solid.
+Render any 3D object as living ASCII. Pick a built-in object, type a word, describe something, let a
+model write it, or drop a model file, and it assembles out of drifting dust as thousands of
+characters lit like a real surface: the side facing the light takes heavy glyphs (`# % @`), the
+shadow side light ones (`. , :`), and the far side is hidden as if the object were solid.
 
 The look and the engine started from quick dot-scene examples in
 an emerging project. This standalone version uses the same glyph atlas ranked by
@@ -18,6 +18,9 @@ npm run dev        # http://localhost:5181
 npm test           # sampling, atlas, guard, export, prompt and URL tests
 npm run build      # typecheck + production build into dist/
 ```
+
+The chat box needs one thing the rest of the app does not: a model to write the scene. Copy
+`.env.example` to `.env` and put a key in it. Nothing else in the app reads that file.
 
 ## The model index
 
@@ -73,6 +76,12 @@ fetches from no other host.
   abstract term is looked up as a drawing and parsed into a flat figure that faces the viewer. When
   neither turns up, a built-in form is grown from the words themselves, so a prompt always draws
   something.
+- **chat**: describe anything in the box under the header and a model writes the 3D scene for it,
+  which the engine then draws in glyphs. It arrives as a silhouette you can turn, and the caption
+  names the model that wrote it. **variant** asks for a different reading of the same prompt, and a
+  repeat prompt is served from a cache rather than the model. Two things about it are worth knowing:
+  it is the only source that needs a credential (see below), and a scene takes ten to twenty seconds
+  the first time, so the box says what it is doing while you wait.
 - **open… / drop**: `.glb .gltf .obj .stl .ply .fbx`. Drop a `.gltf` or `.obj` together with its
   `.bin`, `.mtl` and textures. Vertex colours, material colours and textures are sampled, so
   the **ink** swatch with the rainbow ring shows the model in its own colours. Point clouds work
@@ -95,10 +104,10 @@ fetches from no other host.
   glyphs toward your finger, tap the dust for a ripple and a wobble. Keys: `←` `→` step through
   objects, `w` `a` `s` `d` or `shift` + arrows turn it, `space` scatters, `t` toggles theme,
   `r` rerolls, `g` changes mode.
-- Settings live in the URL (`?o=knot&mode=grid&theme=light&glyphs=classic&seed=3`, or
-  `?prompt=a+lighthouse`) so a view can be shared. A typed word, a prompt and a dropped file's name
-  are checked against a blocklist before anything is drawn, and a refusal keeps the previous object
-  on screen.
+- Settings live in the URL (`?o=knot&mode=grid&theme=light&glyphs=classic&seed=3`, `?prompt=a+lighthouse`
+  or `?chat=a+fox`) so a view can be shared. A typed word, a prompt, a described scene and a dropped
+  file's name are checked against a blocklist before anything is drawn, and a refusal keeps the
+  previous object on screen.
 
 ## How it works
 
@@ -107,6 +116,7 @@ source ──► triangle soup ──► even samples ──► stage ──► 
 library      flatten meshes    blue noise,      springs,     ASCII cells
 text         normalise to      normals,         lighting,    from a splat
 prompt       radius 1.9        colours          occluder     image
+chat         (a model writes the scene above, then the same path)
 file
 ```
 
@@ -141,17 +151,28 @@ file
 - Text export splats the visible dots into a fine depth buffer and gives each character cell the
   glyph its average ink calls for.
 
-## Nothing here needs a key
+## The four backends need no key. The chat box needs one, on the server.
 
 The prompt path has four backends, and one of them always answers: a Wikimedia Commons model, a
 Hugging Face Hub model from the Objaverse index, a Wikimedia Commons drawing parsed into a flat
-figure, then a form grown from the words themselves.
-A hosted text-to-3D or LLM-scene backend was considered for the prompts those four miss, and it is
-deliberately out of scope, so no part of this app depends on a service that can be billed or
-withdrawn. A prompt that has neither a model nor a drawing on Commons gets a built form rather than
-an invented 2D figure.
+figure, then a form grown from the words themselves. None of them needs a credential, and the Hub is
+a free dependency like Commons.
 
-The Hub is a free dependency like Commons, and it needs no key either. It can be slow, it can
-rate-limit a request, and a dataset there can be gated or withdrawn, so every call into it is
-held to a timeout and a failure at any step falls through to the next backend. The index itself
-is a file this repo serves, so a Hub outage costs the app its best models and nothing else.
+The chat box is a fifth backend and it does. A model writes the scene, which means a model has to be
+reachable, which means a key. Three things about how it is wired:
+
+- **The key is never in the bundle.** Anything the browser holds is public, so the browser asks this
+  app's own endpoint (`/api/scene`) and the endpoint holds the key. It is read from `.env` by the dev
+  and preview servers, and by nothing else.
+- **A static build has no chat box.** `npm run build` writes files with no server behind them, so the
+  call fails and the box says the writer is unavailable. That is the honest state of it rather than a
+  silent fallback to a different kind of object.
+- **The scene is code, and it is untrusted.** It runs against a hand-picked corner of three with no
+  loader in it, after a check that refuses the names, escapes and looked-up strings a reach past
+  that namespace is spelled with. It runs only in a worker of its own, with no document, no Function
+  constructor and no network, and an eight-second deadline; a scene that fails there is reported,
+  never run on the page. `docs/contracts.md` states the three rules and `docs/chat-scenes.md`
+  records what the model was measured doing with them.
+
+A written scene is model output, so it carries no author and no licence to honour. The caption names
+the model that wrote it and where it runs, the way a searched model's caption names its author.

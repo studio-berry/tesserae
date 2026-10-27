@@ -110,6 +110,7 @@ type Source =
   | { kind: 'library'; id: string }
   | { kind: 'text'; text: string }
   | { kind: 'prompt'; text: string }
+  | { kind: 'chat'; text: string }
   | { kind: 'file'; name: string; object: THREE.Object3D; bytes: number }
 
 type Shape = Samples & {
@@ -131,6 +132,10 @@ type Shape = Samples & {
 
 type Provenance = { author: string; licence: string; url: string }
 ```
+
+A searched model or drawing fills it with its author and licence. A written scene fills the same
+three fields with the writer's name, the note that the scene was written for this prompt, and where
+the writer runs, so the caption names what made the thing on screen whichever backend answered.
 
 `glyphSizeFor(count)` is the cell one glyph needs at a density: 2.0 times the 4.17/sqrt(count)
 pitch the tightest library surface's samples sit at, which is where the atlas's 0.42 by 0.50 ink
@@ -168,6 +173,82 @@ type PromptResult = {
   source: Provenance | null
 }
 ```
+
+### The chat backend
+
+A `chat` source is not one of the four the prompt path walks. It is its own source, because the
+thing drawn is written for the prompt rather than found for it, and because the wait is tens of
+seconds rather than one request.
+
+```ts
+// src/objects/generate.ts
+sceneKey(text: string, seed: number): string      // normalised prompt and seed
+findChat(text: string, seed?: number): Promise<Written | null>
+chatStore                                         // { phase, title, model, ms, why }
+type Written = { code: string; title: string; model: string; ms: number }
+```
+
+```ts
+// server/scene-prompt.ts
+SYSTEM: string
+userTurn(prompt: string, seed: number): string
+parseReply(text: string): { title: string; code: string } | null
+```
+
+```ts
+// POST /api/scene  { prompt: string, seed: number }
+// 200 { title, code, model, ms } | 502 { error } | 503 { error } | 400 { error }
+// GET  /api/scene  -> { writing: boolean, model: string | null }
+```
+
+The browser never talks to the model. `findChat` posts to this app's own endpoint, and the endpoint
+holds the key on the machine that serves the page: a key in a bundle is public. That is also why the
+backend is optional. `npm run build` writes static files with no endpoint behind them, the call
+fails, and the chat source says the writer is unavailable rather than drawing something else. The
+dev server and the preview server both mount the endpoint (`server/scene-plugin.ts`).
+
+A scene is cached by prompt and seed, in memory and in `localStorage`, forty entries deep. The order
+is kept in the store too (`scene:index`), so the forty hold across visits, not just within one. The
+seed is the reroll: the same prompt with a new seed asks for a different reading.
+
+### Running what the writer returned
+
+```ts
+// src/objects/scene.ts
+checkCode(code: string): { ok: true } | { ok: false; reason: string }
+runScene(code: string, seed: number): { object: THREE.Object3D; parts: number; tris: number }
+sceneThree(): Record<string, unknown>   // the namespace the code is given
+lockdown(): void                        // run once, in the scene worker, before its first job
+```
+
+The code is untrusted: it comes from a model, and a shared `?chat=` link carries whatever prompt its
+author typed. Three rules hold it, and all three are contracts rather than implementation choices:
+
+- **The namespace is a corner of three.** `sceneThree` holds the geometry and material constructors a
+  scene is made of and nothing else. No loader is in it, so there is no constructor in the code's
+  reach that can read a file or a URL.
+- **The check refuses a name that would reach past the namespace** (`constructor`, `prototype`,
+  `globalThis`, `self`, `window`, `document`, `fetch`, `localStorage`) and a loop with no end
+  (`while`, `do {`, `for (;;)`), before the code runs at all. A name spelled past the list is
+  refused too: any backslash, so no escape (`constructor`), and any subscript that holds a
+  string (`x['con' + 'structor']`). A numeric index and an array of strings stay allowed. `new
+  Function` is called with `'use strict'` first, so `this` at the top of the body is undefined
+  rather than the global object.
+- **The code runs only in the scene worker, and the worker is locked down.** It is a worker of its
+  own, with no document, and `lockdown` replaces the constructor of every kind of function with one
+  that throws and removes the network globals (`fetch`, `XMLHttpRequest`, `WebSocket`,
+  `EventSource`, `importScripts`, `indexedDB`, `caches`, `BroadcastChannel`, `Worker`). That holds
+  what a text check cannot see, such as a name looked up through a variable. The ask is bounded at
+  eight seconds, and a scene that never returns costs the scene worker, which is killed, rather than
+  the page. A scene that fails, runs out of time, or finds no worker is reported to the person who
+  asked; it is never retried on the page.
+
+What comes back is checked before it is sampled: an `Object3D`, at least one part, finite bounds, at
+most 400 parts and 120,000 triangles.
+
+A scene that arrives with no title is named after its prompt. A scene whose title or code breaks the
+content rules, or whose code the sandbox refuses, is not drawn: the chat source says so and keeps the
+previous object on screen.
 
 ## The Objaverse index
 
@@ -265,6 +346,7 @@ alone were already standing.
 ```ts
 Hud({ shape, status, error, theme, ramp, onRetry })
 Panel({ ..., surprise, setSurprise, edges, setEdges })
+Chat({ value, setValue, onSubmit, onVariant, error, busy, ready })
 Export({ item, onClose, caption, credit })
 Post({ mode, theme, atlas, orient })
 ```

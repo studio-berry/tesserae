@@ -14,3 +14,7 @@ __pycache__/
 
 # hermes scratch: plans, checkpoints and review artifacts, never in the repo
 .hermes/
+
+# the scene writer's credential, and anything else local to one machine
+.env
+.env.local
