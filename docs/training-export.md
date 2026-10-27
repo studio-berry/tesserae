@@ -89,14 +89,17 @@ On this machine, from the shipped index, eight downloads at a time:
 |---|---|---|---|---|
 | 24 rows | 24 | 0 | 41 MB | 22 s |
 | 200 rows | 200 | 0 | 275 MB | 74 s |
+| 20,000 rows | 19,980 | 20 | 26.7 GB | 1 h 55 min |
 
-That is about 1.4 MB and 0.37 s per model, so the 20,000 rows are about 28 GB of downloads, two
-hours, and 1.2 GB of shards. No row of the 200 was draco compressed or failed to parse; both are
-handled and named in the failure file if they turn up.
+The whole shipped index is 1.2 GB of shards. Of the 20 rows lost, 19 held more triangles than
+the 200,000 cap once loaded (209,536 to 324,860): the face count the index filters on is lower
+than what those files hold. The last gave a point that is not finite. No row was draco
+compressed or failed to parse; both are handled and named in the failure file if they turn up.
+9,990 of the kept rows carry colour, and 11,457 lost a texture's colour.
 
-The shards were read back with numpy: every point lies within radius 1, every normal is unit
-length to within 0.0004, and a front view of each, shaded by its normals, reads as its caption
-(a cat, two buses, a rifle).
+The shards were read back with numpy: every point lies within radius 1 (1.0003 at most, the
+rounding of a half), every normal is unit length to within 0.0004, and on the first 24 rows a
+front view of each, shaded by its normals, reads as its caption (a cat, two buses, a rifle).
 
 ## The credit
 
