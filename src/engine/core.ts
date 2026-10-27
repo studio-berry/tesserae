@@ -2,7 +2,7 @@ import * as THREE from 'three'
 
 // The stage drives a fixed pool of N dots. An object uses `count` of them; the rest drift as
 // "dust", a faint far shell that gives the stage depth (the same trick the ivory scenes use).
-export const N = 12000
+export const N = 24000
 
 // every object is centred and scaled so its bounding sphere has this radius
 export const R = 1.9
@@ -25,6 +25,20 @@ export const TINTS = [
 
 // 'source' keeps the object's own colours (vertex colours, materials, textures) when it has any
 export type TintId = (typeof TINTS)[number]['id'] | 'source'
+export type PaletteId = (typeof TINTS)[number]['id']
+
+// One named palette per design, built from the tint tokens; each token already carries its paper
+// and ink value, so a palette is a name and an id and nothing else.
+export const PALETTES = [
+  { id: 'ivory', name: 'porcelain' },
+  { id: 'blue', name: 'blueprint' },
+  { id: 'ember', name: 'terracotta' },
+  { id: 'jade', name: 'celadon' },
+  { id: 'violet', name: 'orchid' },
+] as const
+
+export const paletteName = (id: PaletteId) => PALETTES.find((p) => p.id === id)?.name ?? id
+export const paletteInk = (id: PaletteId, theme: Theme) => TINTS.find((t) => t.id === id)?.[theme] ?? TINTS[0][theme]
 
 // Colours an object bakes into its own geometry. Named here so a theme change reaches them too,
 // and so nothing in src/objects/ carries a raw hex.

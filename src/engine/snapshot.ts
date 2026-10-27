@@ -15,6 +15,7 @@ export type SnapshotInput = {
   height: number
   twoSided: boolean
   sizeMul: number
+  modelScale: number // the stage's zoom * fit, which the shader multiplies into the glyph size
   light: THREE.Vector3
   ramp: readonly string[]
   cols: number
@@ -43,7 +44,8 @@ export function snapshotText(p: SnapshotInput) {
     const graze = 0.5 + 0.5 * smooth(facing / 0.45)
     const ink = clamp01(p.alpha[i] * (0.16 + 0.84 * lam + 0.55 * spec + 0.06 * (1 - clamp01(facing)) ** 3) * graze * 0.72)
     v.applyMatrix4(p.projection)
-    const x = (v.x * 0.5 + 0.5) * p.width, y = (0.5 - v.y * 0.5) * p.height, r = (p.size[i] * p.sizeMul * focal) / z / 2
+    const x = (v.x * 0.5 + 0.5) * p.width, y = (0.5 - v.y * 0.5) * p.height
+    const r = (p.size[i] * p.sizeMul * p.modelScale * focal) / z / 2
     dots.push({ x, y, z, ink, r })
     x0 = Math.min(x0, x - r); x1 = Math.max(x1, x + r); y0 = Math.min(y0, y - r); y1 = Math.max(y1, y + r)
   }

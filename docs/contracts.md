@@ -113,7 +113,8 @@ type Source =
   | { kind: 'file'; name: string; object: THREE.Object3D; bytes: number }
 
 type Shape = Samples & {
-  key: string
+  key: string                // source, seed and count
+  origin: string             // source and seed only, so a re-sample is not a new object
   kind: Source['kind']
   title: string
   detail: string
@@ -122,7 +123,7 @@ type Shape = Samples & {
   triangles: number
   across: number
   up: number
-  glyphSize: number          // world units, identical for every source at one density
+  glyphSize: number          // object-space units, identical for every source at one density; the stage scales it with the model
   pose: 'spin' | 'face'      // spin: turntable. face: rock toward the viewer
   flat: boolean              // 2D sources face the viewer and get no depth
   source: Provenance | null  // where a searched model came from
@@ -130,6 +131,27 @@ type Shape = Samples & {
 
 type Provenance = { author: string; licence: string; url: string }
 ```
+
+`glyphSizeFor(count)` is the cell one glyph needs at a density: 2.0 times the 4.17/sqrt(count)
+pitch the tightest library surface's samples sit at, which is where the atlas's 0.42 by 0.50 ink
+footprint leaves no gap. `zoomCount(base, zoom, cap)` is the count a zoom level asks for,
+`base * zoom^2` in quarter-density steps, never below the base and never above the pool `N`.
+
+## Colour
+
+Five tint tokens carry a paper and an ink value, and a palette is a name over one of them.
+A library design names the palette it was drawn for, an absent `ink` in a link means that
+palette, and `source` keeps an object's own colours.
+
+```ts
+type PaletteId = 'ivory' | 'blue' | 'ember' | 'jade' | 'violet'
+PALETTES: { id: PaletteId; name: string }[]   // porcelain, blueprint, terracotta, celadon, orchid
+paletteName(id: PaletteId): string
+paletteInk(id: PaletteId, theme: Theme): string
+TintId = PaletteId | 'source'                 // what the stage and the panel take
+```
+
+`ink=` in a link accepts every value it accepted before, so old share links keep their colour.
 
 ## Prompt backends
 

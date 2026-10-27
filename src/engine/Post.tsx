@@ -26,6 +26,7 @@ uniform float uOrientCount;
 uniform float uEdge;
 uniform float uScan;   // 1 = faint scanlines and a vignette, the way a terminal reads
 uniform float uVig;
+uniform float uLod;    // atlas mip level for one cell; cell seams would otherwise ask for the smallest
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 vec2 tileUV(float i, vec2 local) {
@@ -43,7 +44,11 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   vec3 col = s.rgb / max(s.a, 1e-4);
   float h = hash(cell);
   float r = hash(vec2(floor(uTime * 0.1 + h * 50.0), h));
-  float idx = clamp(floor(pow(ink, 0.8) * (uCount - 1.0) + (r - 0.5) * uJitter + 0.5), 0.0, uCount - 1.0);
+  // a pick past either end of the ramp folds back in, so the brightest cells keep their variety
+  float top = uCount - 1.0;
+  float want = pow(ink, 0.8) * top + (r - 0.5) * uJitter;
+  want = top - abs(top - abs(want));
+  float idx = clamp(floor(want + 0.5), 0.0, top);
   // the ink gradient runs across the edge, so the line itself is perpendicular to it
   vec2 line = vec2(-(texture2D(inputBuffer, c0 + vec2(0.0, d.y)).a - texture2D(inputBuffer, c0 - vec2(0.0, d.y)).a),
                     texture2D(inputBuffer, c0 + vec2(d.x, 0.0)).a - texture2D(inputBuffer, c0 - vec2(d.x, 0.0)).a);
@@ -52,8 +57,9 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   phi = phi < 0.0 ? phi + 3.14159265 : phi;
   float onEdge = uOrient * step(uEdge, slope);
   idx = mix(idx, uOrientBase + clamp(floor(phi * uOrientCount / 3.14159265), 0.0, uOrientCount - 1.0), onEdge);
-  vec2 t = 0.5 + (fract(px / uCell) - 0.5) * uGlyph;
-  float m = all(greaterThanEqual(t, vec2(0.0))) && all(lessThanEqual(t, vec2(1.0))) ? texture2D(uAtlas, tileUV(idx, t)).a : 0.0;
+  // screen y runs up and a tile's own y runs down from its top, so the cell flips it
+  vec2 t = 0.5 + (fract(px / uCell) - 0.5) * vec2(1.0, -1.0) * uGlyph;
+  float m = all(greaterThanEqual(t, vec2(0.0))) && all(lessThanEqual(t, vec2(1.0))) ? textureLod(uAtlas, tileUV(idx, t), uLod).a : 0.0;
   m *= smoothstep(0.03, 0.09, ink);
   vec3 c = uLight > 0.5 ? col : col / max(max(col.r, col.g), max(col.b, 1e-3)) * (0.45 + 0.55 * ink);
   float vig = mix(1.0, 1.0 - 0.35 * pow(distance(uv, vec2(0.5)) * 1.35, 2.4), uVig);
@@ -72,6 +78,7 @@ class AsciiEffect extends Effect {
         ['uCols', new THREE.Uniform(1)], ['uRows', new THREE.Uniform(1)], ['uOrient', new THREE.Uniform(0)],
         ['uOrientBase', new THREE.Uniform(0)], ['uOrientCount', new THREE.Uniform(8)],
         ['uEdge', new THREE.Uniform(0.12)], ['uScan', new THREE.Uniform(0)], ['uVig', new THREE.Uniform(0)],
+        ['uLod', new THREE.Uniform(0)],
       ]),
     })
   }
@@ -127,6 +134,8 @@ export function Post({ mode, theme, atlas, orient }: { mode: Mode; theme: Theme;
       const f = gridFont(size.width, size.height) * viewport.dpr, cw = f * 0.6, ch = f * 1.2
       ascii.uniforms.get('uCell')!.value.set(cw, ch)
       ascii.uniforms.get('uGlyph')!.value.set((cw * TILE_FONT) / (f * TILE), (ch * TILE_FONT) / (f * TILE))
+      // one device pixel spans TILE_FONT / f atlas texels; half a level sharper keeps thin strokes
+      ascii.uniforms.get('uLod')!.value = Math.max(0, Math.log2(TILE_FONT / f) - 0.5)
       ascii.uniforms.get('uTime')!.value = state.clock.elapsedTime
       // a cell has to stand out from its neighbours before it counts as an edge
       ascii.uniforms.get('uEdge')!.value = 0.16 + 0.5 * (1 - Math.min(1, Math.min(size.width, size.height) / 1200))

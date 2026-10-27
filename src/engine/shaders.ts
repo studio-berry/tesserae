@@ -46,6 +46,7 @@ uniform float uShade;        // 0 = flat, 1 = fully lit by the light
 uniform float uBackFade;     // fade dots whose surface faces away (used when there is no occluder)
 uniform float uTwoSided;     // light the back face too, for open surfaces
 uniform float uSizeMul;
+uniform float uModelScale;   // the model's own scale, so object glyphs grow while dust keeps its size
 uniform float uMode;
 uniform vec4 uScan;          // xyz direction, w start time, negative when nothing is scanning
 uniform vec4 uRipples[4];    // xyz centre, w birth time
@@ -123,7 +124,7 @@ void main() {
 
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = asz * (1.0 + glow * 0.25) * uSizeMul * uScale / -mv.z;
+  gl_PointSize = asz * (1.0 + glow * 0.25) * uSizeMul * mix(1.0, uModelScale, has) * uScale / -mv.z;
 
   vec3 n = normalize(normalMatrix * an + vec3(0.0, 0.0, 1e-5));
   vec3 v = normalize(-mv.xyz);
@@ -145,6 +146,11 @@ void main() {
   float a = atan(-tan2.y, -tan2.x);
   vAngle = a < 0.0 ? a + 3.14159265 : a;
   vEdgeW = has * (1.0 - smoothstep(0.0, uEdge, abs(facing)));
+  // Samples are even on the surface, but a face turned away squeezes them together on screen by
+  // 1 / facing. Keeping only that share of them holds the screen spacing even, with a floor so the
+  // silhouette still reads as a line. The grid averages ink per cell, so it keeps every dot.
+  float keep = mix(1.0, clamp(abs(facing) / 0.6, 0.3, 1.0), has * step(uMode, 1.5));
+  if (fract(aSeed * 7919.37) > keep) { gl_PointSize = 0.0; vInk = 0.0; }
   // dots mode is a halftone: lit dots swell, shadowed ones shrink
   if (uMode > 0.5 && uMode < 1.5) gl_PointSize *= mix(1.0, mix(0.35, 1.3, clamp(vInk * 0.72, 0.0, 1.0)), has);
   // in the grid every dust mote would claim a whole cell; keep most of them below the threshold
@@ -179,7 +185,14 @@ void main() {
     float ink = clamp(vInk * 0.72, 0.0, 1.0);
     float roll = floor(uTime * 0.1 + vSeed * 50.0);
     float r = fract(sin(roll * 12.9898 + vSeed * 78.233) * 43758.5453);
-    float idx = clamp(floor(pow(ink, 0.8) * (uCount - 1.0) + (r - 0.5) * uJitter + 0.5), 0.0, uCount - 1.0);
+    // a soft knee rather than a clamp, so a highlight still spreads over the heavy end of the ramp
+    // instead of piling onto its last glyph
+    float tone = 1.0 - exp(-1.25 * vInk);
+    float top = uCount - 1.0;
+    float want = tone * top + (r - 0.5) * uJitter;
+    // a pick past either end folds back in, so the faintest and brightest patches keep their variety
+    want = top - abs(top - abs(want));
+    float idx = clamp(floor(want + 0.5), 0.0, top);
     // along an edge the glyph follows the surface instead of the light
     float onEdge = step(0.5, vEdgeW) * uOrient;
     idx = mix(idx, uOrientBase + clamp(floor(vAngle * uOrientCount / 3.14159265), 0.0, uOrientCount - 1.0), onEdge);
@@ -214,6 +227,7 @@ attribute float aInk;
 attribute float aSeed;
 uniform float uTime;
 uniform float uScale;
+uniform float uModelScale;
 varying float vInk;
 varying float vSeed;
 void main() {
@@ -223,7 +237,7 @@ void main() {
   p.z += cos(uTime * 0.31 + aSeed * 4.712) * 0.012;
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = (0.018 + aSeed * 0.006) * uScale / -mv.z;
+  gl_PointSize = (0.018 + aSeed * 0.006) * uModelScale * uScale / -mv.z;
   vInk = aInk;
   vSeed = aSeed;
 }`
