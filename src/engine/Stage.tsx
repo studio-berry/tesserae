@@ -1,8 +1,8 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import type { Shape } from '../objects'
-import { DUST, Mode, N, R, THEMES, TINTS, Theme, TintId, clamp01, mulberry32, smooth } from './core'
+import { GLYPH_FILL, type Shape } from '../objects'
+import { DUST, Mode, N, R, THEMES, TINTS, Theme, TintId, clamp01, mulberry32, paletteInk, smooth } from './core'
 import { Atlas } from './glyphs'
 import { infoStore, stageApi } from './info'
 import { occluderFrag, occluderVert, pointFrag, pointVert, shadowFrag, shadowVert } from './shaders'
@@ -12,11 +12,12 @@ type Props = {
   shape: Shape | null
   mode: Mode
   theme: Theme
-  tint: TintId
+  palette: TintId
   atlas: Atlas
   spin: boolean
   orient: boolean // direction glyphs along the silhouette
   paused: boolean // the browser took the graphics context away
+  onZoom?: (zoom: number) => void // the quantized zoom, reported so the caller can re-sample
 }
 
 // Where every dot is headed. Dots past shape.count are dust.
@@ -27,8 +28,12 @@ type Target = {
 }
 
 const LIGHT = new THREE.Vector3(-0.5, 0.6, 0.62).normalize() // view space, from the upper left and a little in front
-const SIZE_MUL = { letters: 1, dots: 0.9, grid: 1.9 }
+// Dots and grid are sized against the sample pitch, not the letters cell: a dot covers about one
+// pitch and a grid splat about two, so the grid's cells always find ink under them.
+const SIZE_MUL = { letters: 1, dots: 1.04 / GLYPH_FILL, grid: 2.2 / GLYPH_FILL }
 const SHADOW_DOTS = 700
+// the pool is far bigger than the dust needs, so only this many unused dots show as dust
+const DUST_SHOWN = 6000
 const TILT = 0.32
 
 // The same curve the vertex shader uses, so a dot caught mid-flight keeps moving smoothly when the
@@ -49,7 +54,14 @@ function makeTarget(shape: Shape | null, dir: THREE.Vector3, rnd: () => number):
     shape, pos: DUST.slice(), nrm: new Float32Array(N * 3), col: new Float32Array(N * 3),
     size: new Float32Array(N), alpha: new Float32Array(N), order: new Float32Array(N),
   }
-  for (let i = 0; i < N; i++) { t.size[i] = 0.035 + rnd() * 0.04; t.alpha[i] = 0.04 + rnd() * 0.1; t.order[i] = rnd() }
+  const dustKeep = Math.min(1, DUST_SHOWN / Math.max(1, N - (shape?.count ?? 0)))
+  for (let i = 0; i < N; i++) {
+    t.size[i] = 0.035 + rnd() * 0.04
+    // both draws happen for every dot, so a re-sample that changes dustKeep keeps the same stream
+    const shown = rnd() < dustKeep, alpha = 0.04 + rnd() * 0.1
+    t.alpha[i] = shown ? alpha : 0
+    t.order[i] = rnd()
+  }
   if (!shape) return t
   // one glyph size for every object at this density, so the family reads as one family
   const glyph = shape.glyphSize
@@ -65,10 +77,12 @@ function makeTarget(shape: Shape | null, dir: THREE.Vector3, rnd: () => number):
   return t
 }
 
-// Colours and base brightness, which depend on theme and tint but not on where dots are
-function paint(t: Target, theme: Theme, tint: TintId) {
-  const dust = new THREE.Color(THEMES[theme].dust), ink = new THREE.Color(TINTS.find((x) => x.id === tint)?.[theme] ?? TINTS[0][theme])
-  const src = tint === 'source' ? t.shape?.col : null, light = theme === 'light'
+// Colours and base brightness, which depend on theme and palette but not on where dots are
+function paint(t: Target, theme: Theme, palette: TintId) {
+  const dust = new THREE.Color(THEMES[theme].dust)
+  // 'source' takes the object's own colours; its ink is only the fallback for a shape without any
+  const ink = new THREE.Color(palette === 'source' ? TINTS[0][theme] : paletteInk(palette, theme))
+  const src = palette === 'source' ? t.shape?.col : null, light = theme === 'light'
   for (let i = 0; i < N; i++) {
     const i3 = i * 3
     if (t.nrm[i3] === 0 && t.nrm[i3 + 1] === 0 && t.nrm[i3 + 2] === 0) {
@@ -98,7 +112,7 @@ const yawOf = (q: THREE.Quaternion) => Math.atan2(2 * (q.w * q.y + q.x * q.z), 1
 const FACE = new THREE.Quaternion(), FACE_E = new THREE.Euler()
 const Y = new THREE.Vector3(), Q = new THREE.Quaternion(), W = new THREE.Vector3(), X = new THREE.Vector3()
 
-export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }: Props) {
+export function Stage({ shape, mode, theme, palette, atlas, spin, orient, paused, onZoom }: Props) {
   const { size, viewport, camera, gl, scene, invalidate, setDpr, setFrameloop } = useThree()
   const group = useRef<THREE.Group>(null!)
   const squash = useRef<THREE.Group>(null!)
@@ -123,7 +137,7 @@ export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }:
     vertexShader: pointVert, fragmentShader: pointFrag, transparent: true, depthWrite: false,
     uniforms: {
       uScale: { value: 1 }, uLightDir: { value: LIGHT.clone() }, uShade: { value: 1 }, uBackFade: { value: 1 }, uTwoSided: { value: 0 },
-      uSizeMul: { value: 1 }, uLight: { value: 0 }, uMode: { value: 0 }, uTime: { value: 0 }, uEnter: { value: 0 }, uPhase: { value: 0 },
+      uSizeMul: { value: 1 }, uModelScale: { value: 1 }, uLight: { value: 0 }, uMode: { value: 0 }, uTime: { value: 0 }, uEnter: { value: 0 }, uPhase: { value: 0 },
       uCount: { value: 1 }, uJitter: { value: 0 }, uCols: { value: 1 }, uRows: { value: 1 },
       uOrient: { value: 0 }, uOrientCount: { value: 4 }, uOrientBase: { value: 0 }, uEdge: { value: 0.22 },
       uAtlas: { value: null }, uGlint: { value: new THREE.Color() },
@@ -159,7 +173,7 @@ export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }:
   const shadowMat = useMemo(() => new THREE.ShaderMaterial({
     vertexShader: shadowVert, fragmentShader: shadowFrag, transparent: true, depthWrite: false,
     uniforms: {
-      uTime: { value: 0 }, uScale: { value: 1 }, uCount: { value: 1 }, uCols: { value: 1 }, uRows: { value: 1 },
+      uTime: { value: 0 }, uScale: { value: 1 }, uModelScale: { value: 1 }, uCount: { value: 1 }, uCols: { value: 1 }, uRows: { value: 1 },
       uAtlas: { value: null }, uColor: { value: new THREE.Color() },
     },
   }), [])
@@ -198,10 +212,14 @@ export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }:
     scanNext: 7, scanStart: -99, scanDir: new THREE.Vector3(0, 1, 0),
     ripples: [] as { c: THREE.Vector3; t: number }[],
     q: new THREE.Quaternion().setFromEuler(new THREE.Euler(TILT, -0.6, 0, 'XYZ')),
-    w: new THREE.Vector3(), drag: false, lastTouch: -99, zoom: 1, fit: 0.8, occ: 0, moving: false,
+    w: new THREE.Vector3(), drag: false, lastTouch: -99, zoom: 1, zoomReported: 1, fit: 0.8, occ: 0, moving: false,
     grab: { point: new THREE.Vector3(), held: 0, mode: 0 },
     squash: 0, squashDir: new THREE.Vector2(1, 0),
   })
+
+  // A new engine starts at zoom 1, and after a context restore the caller may still hold the old
+  // zoom, so it would keep sampling for a zoom nobody sees
+  useEffect(() => { onZoom?.(1) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Takes on a new set of targets without moving anything by hand: what each dot is doing right now
   // is frozen into aFrom and the aPrev* attributes, and the vertex shader animates from there. This
@@ -234,11 +252,17 @@ export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }:
     e.cur = next
   }
 
-  const enter = (nextShape: Shape | null, burst = false) => {
-    const e = E.current
-    const rnd = mulberry32(hash(nextShape?.key ?? 'dust'))
+  // Seeded from the origin, not the key: the key carries the count, so a detail re-sample would
+  // re-roll the dust shell and the dust would jump while the object refined.
+  const build = (nextShape: Shape | null) => {
+    const rnd = mulberry32(hash(nextShape?.origin ?? 'dust'))
     const target = makeTarget(nextShape, randomDir(rnd), rnd)
-    paint(target, theme, tint)
+    paint(target, theme, palette)
+    return target
+  }
+
+  const enter = (nextShape: Shape | null, target: Target, burst = false) => {
+    const e = E.current
     const scatter = burst && !reduce
     const stagger = scatter ? 0.5 : e.phase === 'idle' && e.time > 0.5 ? 1.1 : 1.7
     commit(target, stagger)
@@ -248,13 +272,28 @@ export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }:
     invalidate()
   }
 
-  useEffect(() => { enter(shape) }, [shape]) // eslint-disable-line react-hooks/exhaustive-deps
+  // A re-sample of the same object at another count changes the picture, not the assembly: the
+  // glyphs settle into the finer set in place instead of scattering in again. A new object enters.
+  const load = (nextShape: Shape | null) => {
+    const e = E.current, target = build(nextShape)
+    if (nextShape && e.cur?.shape?.origin === nextShape.origin) {
+      // The depth surface is rebuilt even though the object is the same, because the sample cache
+      // disposes the occluder of an evicted count and this mesh must not keep drawing a dead one.
+      if (occ.current) occ.current.geometry = nextShape.occluder ?? new THREE.BufferGeometry()
+      commit(target, 0.35)
+      invalidate()
+      return
+    }
+    enter(nextShape, target)
+  }
+
+  useEffect(() => { load(shape) }, [shape]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const e = E.current
     if (!e.cur) return
-    paint(e.cur, theme, tint)
+    paint(e.cur, theme, palette)
     commit(e.cur, 0)
-  }, [theme, tint]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [theme, palette]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // shared by tap-to-ripple and the text snapshot: the current model-view transform
   const views = () => {
@@ -315,6 +354,15 @@ export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }:
       }
     }
 
+    // Pinch and wheel both come through here: one clamp, and a report only when the quantized
+    // value changes, so a pinch asks for a handful of re-samples rather than one per event.
+    const zoomTo = (z: number) => {
+      e.zoom = Math.max(0.5, Math.min(2.6, z))
+      const q = Math.round(e.zoom * 20) / 20
+      if (q !== e.zoomReported) { e.zoomReported = q; onZoom?.(q) }
+      invalidate()
+    }
+
     const onDown = (ev: PointerEvent) => {
       el.setPointerCapture(ev.pointerId)
       pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY })
@@ -349,7 +397,7 @@ export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }:
       p.x = ev.clientX; p.y = ev.clientY; lastMove = now
       if (pts.size === 2) {
         const [a, b] = [...pts.values()], d = Math.hypot(a.x - b.x, a.y - b.y)
-        if (pinch > 0) e.zoom = Math.max(0.5, Math.min(2.6, e.zoom * (d / pinch)))
+        if (pinch > 0) zoomTo(e.zoom * (d / pinch))
         pinch = d; down.moved = 99
       } else {
         const k = 0.0065, len = Math.hypot(dx, dy)
@@ -376,7 +424,7 @@ export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }:
       }
     }
     const onLeave = () => { if (!pts.size) mat.uniforms.uLightDir.value.copy(LIGHT) }
-    const onWheel = (ev: WheelEvent) => { ev.preventDefault(); e.zoom = Math.max(0.5, Math.min(2.6, e.zoom * Math.exp(-ev.deltaY * 0.0012))); invalidate() }
+    const onWheel = (ev: WheelEvent) => { ev.preventDefault(); zoomTo(e.zoom * Math.exp(-ev.deltaY * 0.0012)) }
     el.addEventListener('pointerdown', onDown); el.addEventListener('pointermove', onMove)
     el.addEventListener('pointerup', onUp); el.addEventListener('pointercancel', onUp)
     el.addEventListener('pointerleave', onLeave)
@@ -387,11 +435,11 @@ export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }:
       el.removeEventListener('pointerup', onUp); el.removeEventListener('pointercancel', onUp)
       el.removeEventListener('pointerleave', onLeave); el.removeEventListener('wheel', onWheel)
     }
-  }, [gl, camera, mat, reduce, invalidate]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [gl, camera, mat, reduce, invalidate, onZoom]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------- imperative hooks for the UI
   useEffect(() => {
-    stageApi.burst = () => { const e = E.current; if (e.cur?.shape) enter(e.cur.shape, true) }
+    stageApi.burst = () => { const e = E.current; if (e.cur?.shape) enter(e.cur.shape, build(e.cur.shape), true) }
     stageApi.rotate = (dx, dy) => {
       const e = E.current
       const len = Math.hypot(dx, dy)
@@ -410,7 +458,7 @@ export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }:
         size: geo.attributes.aSize.array as Float32Array,
         alpha: geo.attributes.aAlpha.array as Float32Array,
         mv: views(), projection: camera.projectionMatrix, width: size.width, height: size.height,
-        twoSided: e.cur.shape.twoSided, sizeMul: SIZE_MUL.grid, light: LIGHT,
+        twoSided: e.cur.shape.twoSided, sizeMul: SIZE_MUL.grid, modelScale: e.zoom * e.fit, light: LIGHT,
         ramp: atlas.ranked, cols,
       })
     }
@@ -493,8 +541,13 @@ export function Stage({ shape, mode, theme, tint, atlas, spin, orient, paused }:
     u.uTwoSided.value = shp?.twoSided ? 1 : 0
     u.uBackFade.value += ((shp?.twoSided ? 0 : 1) - u.uBackFade.value) * (1 - Math.exp(-dt * 3))
     occMat.uniforms.uPush.value = 0.03 * e.zoom * fit
+    // the glyph size is in object space now, so the model's own scale multiplies it into screen;
+    // the ground carries its own x/z scale on top of that
+    u.uModelScale.value = e.zoom * fit
     shadowMat.uniforms.uTime.value = now
     shadowMat.uniforms.uScale.value = scale
+    // zoom only: the ground keeps the size it has at 1x, and its glyphs spread with the object
+    shadowMat.uniforms.uModelScale.value = e.zoom
 
     // adaptive quality: a phone that cannot hold 20 ms a frame gets fewer pixels rather than fewer frames
     e.frameMs += (dt - e.frameMs) * 0.05

@@ -43,6 +43,11 @@ The inputs are not in the repo, and `.cache/` is ignored. The index itself is co
 because it is what the app serves and a rebuild reproduces it byte for byte.
 `docs/objaverse-index.md` has the funnel, the sizes, the licence findings and the title rules.
 
+The same rows can be exported as training data for a prompt-to-shape model: each model sampled
+by the app's own sampler into 4,096 points with normals and colours, in numpy shards beside its
+caption and credit. `npm run export:objaverse -- --limit 200` is a first look, and
+`docs/training-export.md` has the format, the screening rule and the numbers.
+
 ### The credits
 
 - [Objaverse](https://huggingface.co/datasets/allenai/objaverse), by the Allen Institute for AI.
@@ -85,7 +90,9 @@ fetches from no other host.
   like a terminal) and `dots` (a halftone). The switch dims the canvas for a beat rather than
   cutting.
 - **tune**: glyph set (the original five, plus braille, upper, math, arrows, katakana, greek, hex,
-  cyrillic, punct and slashes, or your own characters), ink colour, density (1.5k–12k glyphs), spin,
+  cyrillic, punct and slashes, or your own characters), palette (porcelain, blueprint, terracotta,
+  celadon, orchid; each design picks the one it was drawn for, and the swatch with the rainbow ring
+  keeps a model's own colours), density (3k–24k glyphs), spin,
   scatter, and export. **surprise** makes reroll change the glyph set too; **look → edges** lets the
   silhouette take direction glyphs instead of the brightness ramp, the way hand-drawn ASCII art
   reads.
@@ -126,7 +133,7 @@ file
 - `src/objects/worker.ts` builds and samples library and text sources on a background thread, so a
   switch between objects never blocks the page. A dropped file is parsed on the main thread, since
   its textures arrive through the DOM.
-- `src/engine/Stage.tsx` drives a fixed pool of 12,000 dots. The dots move on the GPU: each one
+- `src/engine/Stage.tsx` drives a fixed pool of 24,000 dots. The dots move on the GPU: each one
   holds where it came from, where it is going and when it was released, and `shaders.ts` evaluates
   the spring, the normals and the scan band from the clock, so a frame at rest uploads nothing and
   costs nothing. The object's own mesh is drawn into the depth buffer only, nudged back a hair, so

@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { mulberry32 } from '../engine/core'
+import { N, mulberry32 } from '../engine/core'
 import { checkTyped } from '../safety'
 import { chatStore, findChat } from './generate.ts'
 import { fromPrompt, normalisePrompt, type Provenance } from './prompt'
@@ -28,7 +28,8 @@ export const NO_WRITER = 'The scene writer is not available here. Try the prompt
 
 // What the stage draws: N evenly spread surface samples plus everything needed to light them
 export type Shape = Samples & {
-  key: string
+  key: string // source, seed and count, so a re-sample of the same object is a different key
+  origin: string // source and seed only, so the stage can tell a re-sample from a new object
   kind: Source['kind']
   title: string
   detail: string
@@ -38,7 +39,7 @@ export type Shape = Samples & {
   // half extents seen by the turntable: across (radius about the vertical axis) and up (with the usual tilt)
   across: number
   up: number
-  glyphSize: number // world units, identical for every source at one density
+  glyphSize: number // object-space units, identical for every source at one density; the stage scales it with the model
   pose: 'spin' | 'face' // spin: turntable. face: rock toward the viewer
   flat: boolean // 2D sources face the viewer and get no depth
   source: Provenance | null // where a searched model came from
@@ -50,8 +51,22 @@ export type Shape = Samples & {
 const SCENE_DEADLINE_MS = 8_000
 
 // Glyph size depends on density alone, never on the object's own area, so the type does not
-// change when the object does; 4.8 keeps the tightest library surface at 1.15x its spacing
-export const glyphSizeFor = (count: number) => 4.8 / Math.sqrt(Math.max(1, count))
+// change when the object does. The cell is 1.45 times the pitch the samples sit at, 4.17/sqrt(count)
+// for the tightest library surface. The atlas ink fills 0.42 of a tile wide and 0.50 high, so at
+// 1.45 each letter keeps a little air on every side: neighbours sit next to each other rather than
+// stacking into a smear, and density, not glyph size, carries the detail.
+export const GLYPH_PITCH = 4.17
+export const GLYPH_FILL = 1.45
+export const glyphSizeFor = (count: number) => (GLYPH_PITCH * GLYPH_FILL) / Math.sqrt(Math.max(1, count))
+
+// The surface grows with the square of the zoom, so a zoom needs more glyphs rather than bigger
+// gaps. Quarter-density steps mean a pinch costs a handful of samples, and `cap` is the fixed
+// pool the stage has to draw with.
+export const zoomCount = (base: number, zoom: number, cap = N) => {
+  const step = Math.max(1, Math.round(base / 4))
+  const want = Math.round((base * zoom * zoom) / step) * step
+  return Math.min(cap, Math.max(base, want))
+}
 
 // how much screen the object needs as it turns: its widest radius about the spin axis, and its
 // height under the default tilt
@@ -272,6 +287,7 @@ export const prepare = async (src: Source, count: number, seed: number): Promise
   return {
     ...s,
     key: `${sourceKey(src, seed)}:${count}:${seed}`,
+    origin: sourceKey(src, seed),
     kind: src.kind,
     title: p.title,
     detail: p.detail,

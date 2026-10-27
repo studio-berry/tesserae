@@ -11,6 +11,16 @@ import { fromPrompt, normalisePrompt } from './prompt'
 import { resultPasses } from '../safety/result'
 import { svgObject } from './svg'
 
+// A request is to a host when its parsed hostname is that host: a substring test would also match
+// a look-alike such as upload.wikimedia.org.example.com.
+const onHost = (url: string, host: string) => {
+  try {
+    return new URL(url).hostname === host
+  } catch {
+    return false
+  }
+}
+
 type Reply = { json?: unknown; text?: string; buffer?: ArrayBuffer; status?: number }
 
 const stubFetch = (route: (url: string) => Reply | null) => {
@@ -80,7 +90,7 @@ describe('fromPrompt', () => {
           LicenseShortName: { value: 'CC0' },
         }) }
       }
-      if (url.includes('upload.wikimedia.org')) return { text: TRIANGLE }
+      if (onHost(url, 'upload.wikimedia.org')) return { text: TRIANGLE }
       return null
     })
     const result = await fromPrompt('the tiny pyramid', mulberry32(1))
@@ -109,7 +119,7 @@ describe('fromPrompt', () => {
           LicenseShortName: { value: 'CC BY 4.0' },
         }) }
       }
-      if (url.includes('upload.wikimedia.org')) return { text: svg }
+      if (onHost(url, 'upload.wikimedia.org')) return { text: svg }
       return null
     })
     const result = await fromPrompt('box', mulberry32(2))
@@ -154,7 +164,7 @@ describe('fromPrompt', () => {
       if (url.includes('filetype%3Adrawing')) {
         return { json: page('Lines.svg', 'https://upload.wikimedia.org/lines.svg', 'image/svg+xml', { LicenseShortName: { value: 'CC0' } }) }
       }
-      if (url.includes('upload.wikimedia.org')) return { text: '<svg><path d="M0 0L10 10" fill="none"/></svg>' }
+      if (onHost(url, 'upload.wikimedia.org')) return { text: '<svg><path d="M0 0L10 10" fill="none"/></svg>' }
       return null
     })
     const result = await fromPrompt('donut', mulberry32(6))
@@ -259,7 +269,7 @@ describe('the prompt path carries no credential', () => {
   it('talks to Wikimedia Commons and to nothing else', () => {
     const hosts = [...source('search.ts').matchAll(/https:\/\/([a-z0-9.-]+)/g)].map((m) => m[1])
     expect(hosts.length).toBeGreaterThan(0)
-    expect([...new Set(hosts)].every((h) => h.endsWith('wikimedia.org'))).toBe(true)
+    expect([...new Set(hosts)].every((h) => h === 'wikimedia.org' || h.endsWith('.wikimedia.org'))).toBe(true)
   })
 })
 
@@ -277,7 +287,7 @@ describe('the credit of a searched model', () => {
           LicenseShortName: { value: 'CC BY-SA 4.0' },
         }) }
       }
-      if (url.includes('upload.wikimedia.org')) return { text: TRIANGLE }
+      if (onHost(url, 'upload.wikimedia.org')) return { text: TRIANGLE }
       return null
     })
     const result = await fromPrompt('the tiny pyramid', mulberry32(1))
@@ -286,7 +296,7 @@ describe('the credit of a searched model', () => {
     // the caption shows the author, the licence, the note and a link to the source
     const html = renderToStaticMarkup(createElement(Hud, {
       shape: {
-        key: 'k', kind: 'prompt', title: result.title, detail: result.detail, twoSided: true,
+        key: 'k', origin: 'test', kind: 'prompt', title: result.title, detail: result.detail, twoSided: true,
         occluder: null, triangles: 3, across: 1, up: 1, glyphSize: 1, pose: 'spin', flat: false,
         pos: new Float32Array(0), nrm: new Float32Array(0), count: 0, spacing: 1, col: null,
         source: result.source,

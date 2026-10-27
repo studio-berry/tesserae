@@ -8,7 +8,7 @@ import { Post } from './engine/Post'
 import { Stage } from './engine/Stage'
 import { applyTokens } from './engine/tokens'
 import { defaultDensity, MODES, readUrl, writeUrl } from './engine/url'
-import { prepare, Shape, Source } from './objects'
+import { prepare, Shape, Source, sourceKey, zoomCount } from './objects'
 import { LIBRARY } from './objects/library'
 import { ACCEPT } from './objects/formats'
 import { checkTyped, scanWords } from './safety'
@@ -44,10 +44,12 @@ export default function App() {
   const [seed, setSeed] = useState(init.seed)
   const [density, setDensity] = useState(init.density)
   const [draftDensity, setDraftDensity] = useState(init.density)
+  const [count, setCount] = useState(init.density) // what the object is actually sampled at
+  const [zoom, setZoom] = useState(1)
   const [mode, setMode] = useState<Mode>(init.mode)
   const [shown, setShown] = useState<Mode>(init.mode)
   const [theme, setTheme] = useState<Theme>(init.theme)
-  const [tint, setTint] = useState<TintId>(init.tint)
+  const [palette, setPalette] = useState<TintId | null>(init.palette)
   const [charset, setCharset] = useState<CharsetId>(init.charset)
   const [custom, setCustom] = useState('')
   const [spin, setSpin] = useState(() => !reduced())
@@ -64,6 +66,7 @@ export default function App() {
   const [exported, setExported] = useState<ExportItem | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const touched = useRef(false) // the density slider has been moved by hand
+  const shownKey = useRef<string | null>(null) // the source and seed on screen, so a refine stays quiet
 
   useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
   useEffect(() => { applyTokens(theme) }, [theme])
@@ -84,8 +87,11 @@ export default function App() {
   }, [fontsReady, ramp, ramps.jitter, gen])
   useEffect(() => () => atlas?.tex.dispose(), [atlas])
 
-  // the slider moves freely; the object resamples once it rests
-  useEffect(() => { const t = setTimeout(() => setDensity(draftDensity), 250); return () => clearTimeout(t) }, [draftDensity])
+  // the slider and a pinch both settle; one re-sample follows, at the count the zoom asks for
+  useEffect(() => {
+    const t = setTimeout(() => { setDensity(draftDensity); setCount(zoomCount(draftDensity, zoom)) }, 200)
+    return () => clearTimeout(t)
+  }, [draftDensity, zoom])
 
   // a rotation of the device or a resize changes how many glyphs suit the screen, but never overrides
   // a density the user set by hand
@@ -113,20 +119,22 @@ export default function App() {
 
   useEffect(() => {
     let live = true
-    setBusy(true)
+    const id = sourceKey(source, seed)
+    // a detail re-sample keeps the picture on screen, so only a different object shows as busy
+    if (shownKey.current !== id) setBusy(true)
     // yield a frame first so the UI shows the change before sampling blocks the thread
     const t = setTimeout(() => {
-      prepare(source, density, seed)
-        .then((s) => { if (live) { setShape(s); setError(''); setBusy(false) } })
+      prepare(source, count, seed)
+        .then((s) => { if (live) { setShape(s); setError(''); setBusy(false); shownKey.current = id } })
         .catch((err: Error) => { if (live) { setError(err.message || 'Could not build that object.'); setBusy(false) } })
     }, 16)
     return () => { live = false; clearTimeout(t) }
-  }, [source, density, seed])
+  }, [source, count, seed])
 
   useEffect(() => {
-    const next = writeUrl({ source, text, prompt, chat, seed, density, mode, theme, tint, charset }, defaultDensity(innerWidth, innerHeight))
+    const next = writeUrl({ source, text, prompt, chat, seed, density, mode, theme, palette, charset }, defaultDensity(innerWidth, innerHeight))
     try { history.replaceState(null, '', `${location.pathname}${next}`) } catch { /* sandboxed: sharing via URL just won't work */ }
-  }, [source, text, prompt, chat, seed, density, mode, theme, tint, charset])
+  }, [source, text, prompt, chat, seed, density, mode, theme, palette, charset])
 
   // the canvas dims for one transition, the mode swaps while it is down, and it comes back up: that
   // reads as a crossfade without rendering both modes at once
@@ -170,7 +178,7 @@ export default function App() {
       // the parsers load on first use; most visits never open a file
       const { loadFiles } = await import('./objects/load')
       const l = await loadFiles(files)
-      setSource({ kind: 'file', ...l }); setSeed(0); setTint('source'); setStatus('') // falls back to ivory if it has no colours
+      setSource({ kind: 'file', ...l }); setSeed(0); setPalette('source'); setStatus('') // falls back to ivory if it has no colours
     } catch (err) {
       setError((err as Error).message || 'Could not read that file.'); setBusy(false); setStatus('')
     }
@@ -290,8 +298,12 @@ export default function App() {
   }, [])
 
   const active = (id: string) => source.kind === 'library' && source.id === id
+  const onZoom = useCallback((z: number) => setZoom(z), [])
+  // a design names its own palette, so picking an object picks the ink it was drawn for
+  const designInk = (s: Source): TintId => s.kind === 'library' ? (LIBRARY.find((l) => l.id === s.id)?.palette ?? 'ivory') : 'ivory'
+  const chosen = palette ?? designInk(source)
   // 'source' only means something for objects that bring their own colours
-  const ink: TintId = tint === 'source' && !shape?.col ? 'ivory' : tint
+  const ink: TintId = chosen === 'source' && !shape?.col ? 'ivory' : chosen
   const title = shape ? shape.title : 'gen-ascii'
 
   useEffect(() => { canvasEl.current?.setAttribute('aria-label', `${title}, drawn in ascii`) }, [title, gen])
@@ -304,7 +316,7 @@ export default function App() {
           camera={{ position: [0, 0, 7], fov: 40, near: 0.5, far: 60 }}
           gl={{ antialias: false, preserveDrawingBuffer: true }} onCreated={onCreated}
         >
-          {atlas && <Stage key={gen} shape={shape} mode={shown} theme={theme} tint={ink} atlas={atlas} spin={spin} orient={edges} paused={paused} />}
+          {atlas && <Stage key={gen} shape={shape} mode={shown} theme={theme} palette={ink} atlas={atlas} spin={spin} orient={edges} paused={paused} onZoom={onZoom} />}
           {atlas && <Post mode={shown} theme={theme} atlas={atlas} orient={edges} />}
         </Canvas>
       </CanvasGuard>
@@ -343,7 +355,7 @@ export default function App() {
       </header>
 
       <Hud
-        shape={shape} theme={theme} ramp={ramp} onRetry={() => prepare(source, density, seed).then(setShape).catch((err: Error) => setError(err.message))}
+        shape={shape} theme={theme} ramp={ramp} onRetry={() => prepare(source, count, seed).then(setShape).catch((err: Error) => setError(err.message))}
         status={busy ? status || (source.kind === 'chat' ? 'asking the scene writer…' : source.kind === 'prompt' ? 'working out what that looks like…' : 'sampling surface…') : status || HINT}
         error={error}
       />
@@ -351,7 +363,7 @@ export default function App() {
       <Panel
         open={tune} theme={theme}
         charset={charset} setCharset={setCharset} custom={custom} setCustom={setCustom}
-        tint={ink} setTint={setTint} hasColor={!!shape?.col}
+        palette={ink} setPalette={setPalette} hasColor={!!shape?.col}
         density={draftDensity} setDensity={(n) => { touched.current = true; setDraftDensity(n) }}
         spin={spin} setSpin={setSpin}
         surprise={surprise} setSurprise={setSurprise} edges={edges} setEdges={setEdges}

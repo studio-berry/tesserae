@@ -16,11 +16,15 @@ export type Settings = {
   density: number
   mode: Mode
   theme: Theme
-  tint: TintId
+  palette: TintId | null // null means the design's own palette
   charset: CharsetId
 }
 
 const pick = <T extends string>(v: string | null, all: readonly T[], d: T) => (all.includes(v as T) ? (v as T) : d)
+
+// an absent or unknown ink names no palette, so the design's own palette stands
+const inkOf = (v: string | null): TintId | null =>
+  v !== null && (v === 'source' || TINTS.some((t) => t.id === v)) ? (v as TintId) : null
 
 export function readUrl(search: string, defaultDensity: number, system: Theme): Settings {
   const q = new URLSearchParams(search)
@@ -35,10 +39,10 @@ export function readUrl(search: string, defaultDensity: number, system: Theme): 
     prompt: prompt ?? '',
     chat: chat ?? '',
     seed: Math.max(0, parseInt(q.get('seed') ?? '0') || 0),
-    density: Math.max(1500, Math.min(12000, parseInt(q.get('n') ?? '') || defaultDensity)),
+    density: Math.max(3000, Math.min(24000, parseInt(q.get('n') ?? '') || defaultDensity)),
     mode: pick(q.get('mode'), MODES, 'letters'),
     theme: pick(q.get('theme'), ['dark', 'light'] as const, system),
-    tint: pick(q.get('ink'), [...TINTS.map((t) => t.id), 'source'] as TintId[], 'ivory'),
+    palette: inkOf(q.get('ink')),
     charset: pick(q.get('glyphs'), [...Object.keys(CHARSETS), 'custom'] as CharsetId[], 'letters'),
   }
 }
@@ -53,10 +57,13 @@ export function writeUrl(s: Settings, defaultDensity: number) {
   if (s.density !== defaultDensity) q.set('n', String(s.density))
   if (s.mode !== 'letters') q.set('mode', s.mode)
   q.set('theme', s.theme)
-  if (s.tint !== 'ivory') q.set('ink', s.tint)
+  // An ink the link named is written back even when it matches a token's default, because the
+  // design's palette is what an absent ink means: dropping it would hand the choice back to the
+  // design and a shared link would not reproduce the palette the sharer saw.
+  if (s.palette !== null) q.set('ink', s.palette)
   if (s.charset !== 'letters') q.set('glyphs', s.charset)
   return `?${q}`
 }
 
 // phones start with fewer, larger glyphs; recomputed on resize so a rotation is respected
-export const defaultDensity = (w: number, h: number) => (Math.min(w, h) < 500 ? 4500 : 6000)
+export const defaultDensity = (w: number, h: number) => (Math.min(w, h) < 500 ? 9000 : 12000)

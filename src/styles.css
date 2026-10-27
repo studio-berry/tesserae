@@ -417,25 +417,22 @@ h1 {
   padding: 3px 9px;
   font-size: 11.5px;
 }
-.swatches {
-  display: flex;
-  gap: 4px;
+.chips .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
 }
-.sw {
-  padding: 3px;
-  display: grid;
-  place-items: center;
+.chips .chip.on {
+  color: var(--fg);
 }
-.sw i {
-  width: 16px;
-  height: 16px;
+.chip i {
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   display: block;
 }
-.sw.on {
-  border-color: var(--line);
-}
-.sw i.src {
+.chip i.src {
   background: conic-gradient(#ff9c62, #f2c94c, #4fd1a5, #7b95ff, #c08bff, #ff9c62);
 }
 input[type="range"] {
