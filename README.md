@@ -161,9 +161,11 @@ reachable, which means a key. Three things about how it is wired:
   call fails and the box says the writer is unavailable. That is the honest state of it rather than a
   silent fallback to a different kind of object.
 - **The scene is code, and it is untrusted.** It runs against a hand-picked corner of three with no
-  loader in it, behind a check that refuses a reach past that namespace, in a worker with no document
-  and an eight-second deadline. `docs/contracts.md` states the two rules and
-  `docs/chat-scenes.md` records what the model was measured doing with them.
+  loader in it, after a check that refuses the names, escapes and looked-up strings a reach past
+  that namespace is spelled with. It runs only in a worker of its own, with no document, no Function
+  constructor and no network, and an eight-second deadline; a scene that fails there is reported,
+  never run on the page. `docs/contracts.md` states the three rules and `docs/chat-scenes.md`
+  records what the model was measured doing with them.
 
 A written scene is model output, so it carries no author and no licence to honour. The caption names
 the model that wrote it and where it runs, the way a searched model's caption names its author.

@@ -5,15 +5,18 @@ import { mulberry32 } from '../engine/core.ts'
 //
 // The code arrives from a model, and a shared `?chat=` link carries whatever prompt its author
 // typed, so the code is untrusted input: a prompt can ask for a scene and get one that tries to
-// reach the network or the page. Two rules hold it.
+// reach the network or the page. Three rules hold it.
 //
 // The namespace is the first: `sceneThree` holds the constructors a scene needs and nothing else.
 // `THREE.FileLoader` and `THREE.TextureLoader` can fetch, so they are not in it, and a name the
 // model invents is `undefined` rather than a reachable global.
 //
 // The check is the second: a name that would reach past the namespace, or a loop that would never
-// end, is refused before the code runs at all. The runner also runs in the worker, which has no
-// document, and a scene is given a deadline there.
+// end, is refused before the code runs at all, an escaped name or a looked-up string included.
+//
+// The worker is the third. A scene runs in a worker of its own, with no document, no Function
+// constructor and no network (`lockdown`), killed at a deadline. A scene that fails or runs out of
+// time there is reported, and never run again on the page.
 export const MAX_CODE = 24_000
 export const MAX_TRIS = 120_000
 export const MAX_PARTS = 400
@@ -86,7 +89,28 @@ const BANNED: [RegExp, string][] = [
   [/\bSharedArrayBuffer\b/, 'SharedArrayBuffer'],
   [/\bAtomics\b/, 'Atomics'],
   [/\bWorker\b/, 'Worker'],
+  // A banned name can also be spelled past every pattern above with an escape (`constructor`),
+  // so a backslash anywhere is refused. Scene code has no use for one.
+  [/\\/, 'an escape'],
 ]
+
+// The other way to spell a banned name: build it as a string and look it up (`x['con' +
+// 'structor']`). A subscript is a `[` straight after a name, a `)` or a `]`; one that holds a string
+// is refused. A numeric index (`pts[i]`, `a[i + 1]`) and an array of strings (`['#f00', '#0f0']`)
+// stay allowed. A string in a variable (`x[k]`) passes here, and `lockdown` is what holds it.
+const KEYWORDS = new Set(['return', 'typeof', 'in', 'of', 'case', 'yield', 'await', 'void', 'delete', 'else'])
+
+const looksUpString = (code: string) => {
+  for (let i = code.indexOf('['); i >= 0; i = code.indexOf('[', i + 1)) {
+    const before = code.slice(0, i).trimEnd()
+    if (!/[\w$)\]]$/.test(before)) continue
+    const word = /[\w$]+$/.exec(before)?.[0]
+    if (word && KEYWORDS.has(word)) continue
+    const end = code.indexOf(']', i)
+    if (/['"`]/.test(code.slice(i + 1, end < 0 ? undefined : end))) return true
+  }
+  return false
+}
 
 export type CodeVerdict = { ok: true } | { ok: false; reason: string }
 
@@ -95,7 +119,33 @@ export function checkCode(code: string): CodeVerdict {
   if (!code.trim()) return { ok: false, reason: 'the scene writer sent no code' }
   if (code.length > MAX_CODE) return { ok: false, reason: 'the scene code is too long' }
   for (const [pattern, label] of BANNED) if (pattern.test(code)) return { ok: false, reason: `the scene used ${label}` }
+  if (looksUpString(code)) return { ok: false, reason: 'the scene used a looked-up property name' }
   return { ok: true }
+}
+
+// The runtime half, for a worker that runs scenes and nothing else: what the check cannot see is
+// taken away. A name looked up through a variable passes any text check, and every way from a
+// function back to the global object goes through a Function constructor, so the constructor of each
+// kind of function throws, and the globals that reach the network are gone. Only the scene worker
+// calls it: three never asks a function for its constructor, but the rest of the app is not promised.
+const NETWORK = ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'importScripts', 'indexedDB', 'caches', 'BroadcastChannel', 'Worker']
+
+export function lockdown() {
+  const refused = function () {
+    throw new Error('the scene used the Function constructor')
+  }
+  for (const kind of [function () {}, async function () {}, function* () {}, async function* () {}]) {
+    Object.defineProperty(Object.getPrototypeOf(kind), 'constructor', { value: refused, writable: false, configurable: false })
+  }
+  const scope = globalThis as Record<string, unknown>
+  for (const name of NETWORK) {
+    try {
+      delete scope[name]
+      Object.defineProperty(scope, name, { value: undefined, writable: false, configurable: false })
+    } catch {
+      // a name this runtime defines for good is checked by the test, not silently trusted
+    }
+  }
 }
 
 export type RanScene = { object: THREE.Object3D; parts: number; tris: number }
@@ -112,8 +162,8 @@ export function runScene(code: string, seed: number): RanScene {
   // than a pattern to be removed: the string really is untrusted, and four things hold it. The check
   // above refuses a name that reaches past the namespace before anything runs. The namespace holds
   // no loader, so no constructor in reach can read a file or a URL. Strict mode leaves no global on
-  // `this`. And the caller runs this in a worker with no document, under a deadline that kills the
-  // worker. The alternative that removes the class of risk is a scene described as data (a list of
+  // `this`. And the caller runs this in a locked-down worker with no document, under a deadline that
+  // kills the worker. The alternative that removes the class of risk is a scene described as data (a list of
   // primitives and transforms, no code at all); it is recorded in docs/run-log.tsv and not done,
   // because the measured pass rate belongs to code the model writes, not to a format it would have
   // to be taught.

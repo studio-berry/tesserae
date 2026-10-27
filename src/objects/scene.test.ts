@@ -26,6 +26,31 @@ describe('checkCode', () => {
     }
   })
 
+  it('refuses a banned name spelled with an escape or built as a string', () => {
+    // both forms are valid javascript and reach Function past a word list
+    for (const code of [
+      "return THREE.Mesh.\u0063onstructor('return this')()",
+      "return THREE.Mesh['con' + 'structor']('return this')()",
+      'return THREE.Mesh["constructor"]',
+      'const m = THREE.Mesh; return m[`con${"structor"}`]',
+      "return (rng)['call']",
+    ]) {
+      expect(checkCode(code).ok, code).toBe(false)
+    }
+  })
+
+  it('keeps the brackets a scene is made of', () => {
+    for (const code of [
+      'const pts = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 1, 0)]; const p = pts[1].x; return new THREE.Group()',
+      'const a = [1, 2, 3]; let s = 0; for (let i = 0; i < a.length; i++) s += a[i] + a[(i + 1) % 3]; return new THREE.Group()',
+      "const colors = ['#ff0000', '#00ff00']; const c = new THREE.Color(colors[0]); return new THREE.Group()",
+      "const grid = [[1, 2], [3, 4]]; const v = grid[1][0]; return [new THREE.Group()][0]",
+      "if (rng() > 2) return ['a']; return new THREE.Group()",
+    ]) {
+      expect(checkCode(code), code).toEqual({ ok: true })
+    }
+  })
+
   it('refuses a loop that would never end', () => {
     expect(checkCode('while (true) {}').ok).toBe(false)
     expect(checkCode('for (;;) {}').ok).toBe(false)

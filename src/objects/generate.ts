@@ -63,16 +63,42 @@ const save = (key: string, text: string | null) => {
   }
 }
 
+// The order of the stored scenes, oldest first, kept in the store beside them. The in-memory map
+// starts empty on every page load, so it cannot know what earlier visits saved; this list can, and
+// it is what keeps the browser store at forty entries across visits rather than forty per visit.
+// A key is a prompt and a seed joined by `|`, so no key is ever `index`.
+const ORDER = 'scene:index'
+
+const order = (): string[] => {
+  try {
+    const list = JSON.parse(globalThis.localStorage?.getItem(ORDER) ?? '[]') as unknown
+    return Array.isArray(list) ? list.filter((k): k is string => typeof k === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+// `key` moves to the newest end, and whatever falls past the capacity is dropped from both stores.
+const touch = (key: string) => {
+  const keys = order().filter((k) => k !== key)
+  keys.push(key)
+  while (keys.length > CAPACITY) {
+    const old = keys.shift()!
+    memory.delete(old)
+    save(old, null)
+  }
+  try { globalThis.localStorage?.setItem(ORDER, JSON.stringify(keys)) } catch { /* as in save */ }
+}
+
 const remember = (key: string, written: Written) => {
   const text = JSON.stringify(written)
   memory.delete(key)
   memory.set(key, text)
-  // the in-memory copy holds the order, so the oldest entry is the one dropped from both stores
   while (memory.size > CAPACITY) {
     const [old] = memory.keys()
     memory.delete(old)
-    save(old, null)
   }
+  touch(key)
   save(key, text)
 }
 
@@ -87,6 +113,7 @@ const recall = (key: string): Written | null => {
     if (!value?.code || !value.title) return null
     memory.delete(key)
     memory.set(key, text)
+    touch(key)
     return value
   } catch {
     return null

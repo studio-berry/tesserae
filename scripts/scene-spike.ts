@@ -10,8 +10,10 @@
 // `--out` is required: without it there is nothing to compare against and the funnel below is the
 // only record, which is not a record.
 
-import { writeFileSync } from 'node:fs'
-import { checkCode, runScene } from '../src/objects/scene.ts'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import { Worker } from 'node:worker_threads'
+import { checkCode } from '../src/objects/scene.ts'
 import { writerFrom, writeScene } from '../server/zen.ts'
 
 const PROMPTS = [
@@ -38,6 +40,22 @@ const model = flag('model')
 const key = process.env.OPENCODE_ZEN_API_KEY
 if (!key) throw new Error('OPENCODE_ZEN_API_KEY is not set')
 if (!out) throw new Error('--out is required: the funnel alone is not a record')
+// made before the first request, so ten scenes' worth of answers are never lost to a missing folder
+mkdirSync(dirname(out), { recursive: true })
+
+// The app's deadline for a scene, and the same reason for it: the code is untrusted, so it runs in a
+// locked-down thread that is killed when the time is up, and the spike moves on to the next prompt.
+const DEADLINE_MS = 8_000
+type Ran = { ok: true; parts: number; tris: number } | { ok: false; why: string }
+const runIn = (code: string, seed: number) =>
+  new Promise<Ran>((done) => {
+    const worker = new Worker(new URL('./scene-run.ts', import.meta.url), { workerData: { code, seed } })
+    const timer = setTimeout(() => { void worker.terminate(); done({ ok: false, why: 'that scene took too long to build' }) }, DEADLINE_MS)
+    const finish = (r: Ran) => { clearTimeout(timer); void worker.terminate(); done(r) }
+    worker.once('message', finish)
+    worker.once('error', (err: Error) => finish({ ok: false, why: err.message }))
+    worker.once('exit', () => finish({ ok: false, why: 'the scene thread stopped' }))
+  })
 
 const writer = writerFrom({ ...process.env, ...(model ? { SCENE_MODEL: model } : {}) })!
 // One row per prompt. A row that failed keeps the reason, and the raw reply when there was one, so
@@ -56,9 +74,11 @@ type Row = {
 const rows: Row[] = []
 
 for (const [i, prompt] of PROMPTS.entries()) {
+  const asked = Date.now()
   const result = await writeScene(writer, prompt, { seed: i })
   if (!result.ok) {
-    rows.push({ prompt, ok: false, why: result.why, ms: 0, raw: result.raw })
+    // the time a failed request took is part of the measurement, not zero
+    rows.push({ prompt, ok: false, why: result.why, ms: Date.now() - asked, raw: result.raw })
     console.log(`${i + 1}/${PROMPTS.length} ${prompt}: ${result.why}`)
     continue
   }
@@ -67,12 +87,9 @@ for (const [i, prompt] of PROMPTS.entries()) {
   let ran: { parts: number; tris: number } | null = null
   let why = verdict.ok ? '' : verdict.reason
   if (verdict.ok) {
-    try {
-      const scene = runScene(code, i)
-      ran = { parts: scene.parts, tris: scene.tris }
-    } catch (err) {
-      why = (err as Error).message
-    }
+    const r = await runIn(code, i)
+    if (r.ok) ran = { parts: r.parts, tris: r.tris }
+    else why = r.why
   }
   rows.push({ prompt, title, ok: !!ran, why, ms, ...(ran ?? {}), code })
   console.log(`${i + 1}/${PROMPTS.length} ${prompt} → ${title} ${ran ? `· ${ran.parts} parts, ${ran.tris} tris` : `· FAILED ${why}`} · ${(ms / 1000).toFixed(1)}s`)

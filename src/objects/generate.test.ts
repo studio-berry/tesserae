@@ -65,6 +65,27 @@ describe('findChat', () => {
     expect(posts(calls)).toHaveLength(2)
   })
 
+  it('keeps the browser store at forty scenes across visits, not forty per visit', async () => {
+    const store = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    })
+    stubFetch(() => ({ json: SCENE }))
+    // three visits of thirty prompts each; forgetScenes is a page load, which empties the memory
+    for (let visit = 0; visit < 3; visit++) {
+      forgetScenes()
+      for (let i = 0; i < 30; i++) await findChat(`prompt ${visit * 30 + i}`, 0)
+    }
+    const scenes = [...store.keys()].filter((k) => k !== 'scene:index')
+    expect(scenes).toHaveLength(40)
+    // the newest are the ones kept
+    expect(store.has(`scene:${sceneKey('prompt 89', 0)}`)).toBe(true)
+    expect(store.has(`scene:${sceneKey('prompt 49', 0)}`)).toBe(false)
+    expect(JSON.parse(store.get('scene:index')!)).toHaveLength(40)
+  })
+
   it('keys a prompt the way the backend does, so spacing and case do not cost a second scene', async () => {
     const calls = stubFetch(() => ({ json: SCENE }))
     expect(sceneKey(' A  Brass   Padlock ', 0)).toBe(sceneKey('a brass padlock', 0))
