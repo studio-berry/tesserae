@@ -60,7 +60,8 @@ const parseArgs = (argv: string[]): Args => {
     const count = (min: number) => {
       const v = value()
       const n = Number(v)
-      if (!/^\d+$/.test(v) || n < min) throw new Error(`${k} must be a whole number of at least ${min}, not ${v}`)
+      // a run of digits too long for a double is Infinity, which the digit test alone lets through
+      if (!/^\d+$/.test(v) || !Number.isSafeInteger(n) || n < min) throw new Error(`${k} must be a whole number of at least ${min}, not ${v}`)
       return n
     }
     if (k === '--index') a.index = value()
