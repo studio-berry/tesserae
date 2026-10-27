@@ -96,11 +96,12 @@ export const funnelSteps = (minScore: number): Step[] => [
   // It then read the raw title, while the row that ships carries the tidied one. tidying is not
   // neutral: it turns underscores into spaces, so Bad_Ass becomes two words and the word the app
   // refuses appears where the build saw one token. The check reads the title the row will ship
-  // with, so the string it judges and the string the app judges are the same string.
+  // with, so the string it judges and the string the app judges are the same string. It reads the
+  // author too: every row ships it as the credit and the app shows it.
   {
     label: 'no explicit or blocked words',
     kind: 'caption',
-    keep: (r) => resultPasses(`${rowTitle(r.title, r.caption)} ${r.caption}`),
+    keep: (r) => resultPasses(`${rowTitle(r.title, r.caption)} ${r.caption} ${r.author}`),
   },
   // the models the word filters could not catch, found by looking at the top match of a list of
   // everyday nouns. The list is reviewed rather than generated, so it is worth reading.
