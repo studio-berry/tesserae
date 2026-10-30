@@ -197,8 +197,9 @@ def parse_mix(text: str | None, groups: int) -> list[float] | None:
 def caption_table(captions: list[str]) -> tuple[list[str], np.ndarray]:
     """The distinct captions in first-seen order, and each row's position in them.
 
-    Procedural captions are templated, so a million rows hold a few thousand sentences. The text
-    encoder runs over the distinct ones and the training loop indexes through `ids`.
+    Procedural captions are templated: the nine forms say 236 different sentences in all, and
+    that set is complete by about 300 seeds, so a million rows still hold 236. The text encoder
+    runs over the distinct ones and the training loop indexes through `ids`.
     """
     seen: dict[str, int] = {}
     ids = np.fromiter((seen.setdefault(c, len(seen)) for c in captions), dtype=np.int64, count=len(captions))
