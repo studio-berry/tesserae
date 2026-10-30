@@ -1,0 +1,29 @@
+name: ml
+
+# The training code is Python and the app is TypeScript, so they get their own job. The tests are
+# small and CPU-only on purpose: they hold the shard reader's rules, the model's shapes and the file
+# formats, which is what breaks when the export or the sampler changes.
+
+on:
+  push:
+    branches: [main]
+    paths: ['ml/**', '.github/workflows/ml.yml']
+  pull_request:
+    paths: ['ml/**', '.github/workflows/ml.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # the CPU wheel, because this job trains nothing and the CUDA one is a gigabyte
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install numpy transformers pytest
+      - run: pip install -e ml --no-deps
+      - run: pytest ml/tests -q

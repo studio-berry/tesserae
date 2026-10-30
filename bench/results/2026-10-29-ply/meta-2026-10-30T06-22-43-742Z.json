@@ -1,0 +1,10 @@
+{
+  "at": "2026-10-30T06:22:43.159Z",
+  "judge": "claude-haiku-5-5",
+  "density": 12000,
+  "theme": "dark",
+  "prompts": 200,
+  "sources": [
+    "ply"
+  ]
+}

@@ -1,0 +1,153 @@
+"""Shard reader for the Objaverse training export.
+
+The export writes one folder per run: `meta.json` plus `shard-NNNNN.points.npy` (float16,
+`[n, P, 6]`), `.rgb.npy` (`[n, P, 3]`, 255 where a model had no colour) and `.jsonl` (one row per
+cloud: uid, title, caption, credit). `docs/training-export.md` is the format's own description.
+
+Nothing here downloads anything: the shards are the input, and a shard set whose manifest cannot say
+what it was screened by is refused rather than trained on. That is the one rule this module exists to
+enforce (J3 in the plan).
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+
+
+class UnscreenedShards(RuntimeError):
+    """A shard set that cannot say what screening its rows passed."""
+
+
+@dataclass(frozen=True)
+class Manifest:
+    index: str
+    rows: int
+    points: int
+    screened: object
+    revisions: dict[str, str]
+
+    @classmethod
+    def read(cls, folder: Path) -> "Manifest":
+        path = folder / "meta.json"
+        if not path.exists():
+            raise UnscreenedShards(f"{folder} has no meta.json, so nothing says what the rows were screened by")
+        meta = json.loads(path.read_text(encoding="utf-8"))
+        if "screened" not in meta:
+            raise UnscreenedShards("meta.json does not carry a screening field")
+        return cls(
+            index=str(meta.get("index", "")),
+            rows=int(meta.get("rows", 0)),
+            points=int(meta.get("points", 0)),
+            screened=meta.get("screened"),
+            revisions=dict(meta.get("revisions", {})),
+        )
+
+    @property
+    def screening_note(self) -> str:
+        """What to print next to a training run, so the numbers carry their provenance."""
+        if isinstance(self.screened, list) and self.screened:
+            return f"{len(self.screened)} uids checked by scripts/objaverse-nsfw.py"
+        if self.index.endswith("-20000") and self.screened is None:
+            return "the shipped index, whose every row the image classifier screened"
+        return "unknown"
+
+
+@dataclass
+class Shard:
+    folder: Path
+    manifest: Manifest
+    points: np.ndarray  # [n, P, 6] float16, mmapped
+    captions: list[str]
+    rows: list[dict]
+
+    @property
+    def n(self) -> int:
+        return int(self.points.shape[0])
+
+    def clouds(self, idx: np.ndarray) -> np.ndarray:
+        """The clouds at `idx`, float32 and copied out of the mmap."""
+        return np.asarray(self.points[idx], dtype=np.float32)
+
+
+def load_shards(folder: str | Path, limit_shards: int | None = None) -> tuple[Manifest, list[Shard]]:
+    folder = Path(folder)
+    manifest = Manifest.read(folder)
+    files = sorted(folder.glob("shard-*.points.npy"))
+    if not files:
+        raise FileNotFoundError(f"no shard-*.points.npy in {folder}")
+    shards: list[Shard] = []
+    for file in files[:limit_shards]:
+        stem = file.name[: -len(".points.npy")]
+        lines = (folder / f"{stem}.jsonl").read_text(encoding="utf-8").splitlines()
+        rows = [json.loads(line) for line in lines if line.strip()]
+        points = np.load(file, mmap_mode="r")
+        if len(rows) != points.shape[0]:
+            raise ValueError(f"{file.name} holds {points.shape[0]} clouds and {len(rows)} captions")
+        shards.append(
+            Shard(
+                folder=folder,
+                manifest=manifest,
+                points=points,
+                captions=[str(r.get("caption") or r.get("title") or "") for r in rows],
+                rows=rows,
+            )
+        )
+    return manifest, shards
+
+
+def turn_about_y(pos: np.ndarray, nrm: np.ndarray, angle: float) -> None:
+    """Turn xyz and the normals about Y, in place.
+
+    The export keeps each model's own facing, so the same object arrives turned any way about the
+    vertical axis. A random turn in training is what makes the app's turntable irrelevant to the
+    model: it learns the shape, not which side happened to be exported toward +Z.
+    """
+    c, s = np.cos(angle), np.sin(angle)
+    for xyz in (pos, nrm):
+        x = xyz[..., 0].copy()
+        z = xyz[..., 2].copy()
+        xyz[..., 0] = x * c + z * s
+        xyz[..., 2] = z * c - x * s
+
+
+class CloudDataset:
+    """Batches of `[B, P, 6]` clouds with their captions, drawn from the shards in order."""
+
+    def __init__(self, shards: list[Shard], seed: int = 0, turn: bool = True):
+        self.shards = shards
+        self.seed = seed
+        self.turn = turn
+        self.rng = np.random.default_rng(seed)
+        # an index of every row, so a batch can span shards after the first pass
+        self.index = [(s, i) for s, shard in enumerate(shards) for i in range(shard.n)]
+
+    def __len__(self) -> int:
+        return len(self.index)
+
+    def batch(self, size: int) -> tuple[np.ndarray, np.ndarray, list[str]]:
+        take = self.rng.choice(len(self.index), size=size, replace=False)
+        out = np.empty((size, self.shards[0].points.shape[1], 6), dtype=np.float32)
+        captions: list[str] = [""] * size
+        # gathered a shard at a time: one fancy-index into the mmap per shard instead of one per row,
+        # which is most of what the step spent its time on
+        grouped: dict[int, list[tuple[int, int]]] = {}
+        for j, k in enumerate(take):
+            s, i = self.index[int(k)]
+            grouped.setdefault(s, []).append((j, i))
+        for s, pairs in grouped.items():
+            shard = self.shards[s]
+            clouds = shard.clouds(np.asarray([i for _, i in pairs]))
+            for (j, i), cloud in zip(pairs, clouds):
+                if self.turn:
+                    turn_about_y(cloud[:, :3], cloud[:, 3:], float(self.rng.uniform(0, 2 * np.pi)))
+                out[j] = cloud
+                captions[j] = shard.captions[i]
+        return out, np.asarray(take, dtype=np.int64), captions
+
+    def captions(self) -> list[str]:
+        """Every caption, in the order `batch` indexes them. The text encoder runs once over this."""
+        return [self.shards[s].captions[i] for s, i in self.index]

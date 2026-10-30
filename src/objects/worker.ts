@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { mulberry32 } from '../engine/core'
 import { LIBRARY } from './library'
-import { Cloud, Samples, Soup, sampleCloud, sampleSoup } from './sample'
+import { Cloud, Samples, Soup, sampleCloud, sampleSoup } from '../core/sample'
 import { surfaceFrom, frontWeighted } from './soup'
 import { lockdown, runScene } from './scene.ts'
 import { textObject } from './text'

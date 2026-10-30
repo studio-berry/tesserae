@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { knownInk } from '../core/ink'
 
 // Character sets. Each is ranked by how much ink its glyphs leave, so a dot's brightness picks
 // its character: faint dots read as . , : ; mid ones as letters, bright ones as # % @.
@@ -96,6 +97,32 @@ export const sameTile = (a: Uint8ClampedArray, b: Uint8ClampedArray) => {
   return true
 }
 
+// Ink for the characters the table does not carry, measured the way the table was built. Only a
+// custom ramp reaches this: every built-in set is in `glyph-ink.json`.
+function measure(chars: string[], font: string): GlyphInk[] {
+  const scratch = document.createElement('canvas')
+  scratch.width = scratch.height = TILE
+  const g = scratch.getContext('2d', { willReadFrequently: true })!
+  const sample = (ch: string) => {
+    g.clearRect(0, 0, TILE, TILE)
+    g.font = font
+    g.fillStyle = '#fff'
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    g.fillText(ch, TILE / 2, TILE / 2 + 2)
+    const d = g.getImageData(0, 0, TILE, TILE).data
+    let ink = 0
+    for (let i = 3; i < d.length; i += 4) ink += d[i]
+    return { ch, ink, d }
+  }
+  // a noncharacter no font maps draws the same notdef box a missing glyph would, ink and all
+  const notdef = sample('\u{10FFFD}')
+  return chars
+    .map(sample)
+    .filter((s) => !(notdef.ink > 0 && sameTile(s.d, notdef.d)))
+    .map(({ ch, ink }) => ({ ch, ink }))
+}
+
 const arrow = (g: CanvasRenderingContext2D, x: number, y: number, a: number) => {
   const cx = x + TILE / 2, cy = y + TILE / 2
   const dx = Math.cos(a), dy = Math.sin(a)
@@ -115,31 +142,21 @@ const arrow = (g: CanvasRenderingContext2D, x: number, y: number, a: number) => 
 // Square atlas: ranked glyph tiles first, then the direction arrows in atlas.orient
 export function buildAtlas(chars: string, jitter: number): Atlas {
   const T = TILE, font = `500 ${TILE_FONT}px ${FONT}`
-  const scratch = document.createElement('canvas')
-  scratch.width = scratch.height = T
-  const sg = scratch.getContext('2d', { willReadFrequently: true })!
-  const draw = (g: CanvasRenderingContext2D, ch: string, x: number, y: number) => {
-    g.font = font
-    g.fillStyle = '#fff'
-    g.textAlign = 'center'
-    g.textBaseline = 'middle'
-    g.fillText(ch, x + T / 2, y + T / 2 + 2)
+  const unique = [...new Set(chars)].slice(0, MAX_TILES - ORIENT_COUNT)
+  // The ranking comes from the build-time table, so it is the same on every machine and readable in
+  // a Node test. A character the table does not know (a custom ramp) is measured here, on the canvas.
+  const known: GlyphInk[] = [], unknown: string[] = []
+  for (const ch of unique) {
+    const ink = knownInk(ch)
+    if (ink === undefined) unknown.push(ch)
+    else if (ink > 0) known.push({ ch, ink })
   }
-  const sample = (ch: string) => {
-    sg.clearRect(0, 0, T, T)
-    draw(sg, ch, 0, 0)
-    const d = sg.getImageData(0, 0, T, T).data
-    let ink = 0
-    for (let i = 3; i < d.length; i += 4) ink += d[i]
-    return { ch, ink, d }
-  }
-  // a noncharacter no font maps draws the same notdef box a missing glyph would, ink and all
-  const notdef = sample('\u{10FFFD}')
-  const measured = [...new Set(chars)].slice(0, MAX_TILES - ORIENT_COUNT)
-    .map(sample)
-    .filter((g) => !(notdef.ink > 0 && sameTile(g.d, notdef.d)))
-    .map(({ ch, ink }) => ({ ch, ink }))
-  const ranked = rankGlyphs(measured)
+  const measured = unknown.length ? [...known, ...measure(unknown, font)] : known
+  // A character this machine's font stack cannot draw is dropped the way a missing glyph always was.
+  // `document.fonts` answers that without drawing a tile; with no document (a Node test) every
+  // character counts as drawable, because the table already says what it looks like.
+  const drawable = (ch: string) => (typeof document === 'undefined' || !document.fonts ? true : document.fonts.check(font, ch))
+  const ranked = rankGlyphs(measured.filter((g) => drawable(g.ch)))
   const { cols, rows } = atlasGrid(ranked.length + ORIENT_COUNT)
   const base = ranked.length, tiles = base + ORIENT_COUNT
 
@@ -147,6 +164,13 @@ export function buildAtlas(chars: string, jitter: number): Atlas {
   cv.width = T * cols
   cv.height = T * rows
   const g = cv.getContext('2d')!
+  const draw = (ctx: CanvasRenderingContext2D, ch: string, x: number, y: number) => {
+    ctx.font = font
+    ctx.fillStyle = '#fff'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(ch, x + T / 2, y + T / 2 + 2)
+  }
   ranked.forEach((ch, i) => draw(g, ch, (i % cols) * T, Math.floor(i / cols) * T))
   g.strokeStyle = '#fff'
   g.lineWidth = T * 0.09

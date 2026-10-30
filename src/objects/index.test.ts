@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { N, R, mulberry32 } from '../engine/core'
 import { GLYPH_FILL, GLYPH_PITCH, glyphSizeFor, lru, prepare, zoomCount } from './index'
 import { LIBRARY } from './library'
-import { sampleSoup } from './sample'
+import { sampleSoup } from '../core/sample'
 import { hasSurface, surfaceFrom } from './soup'
 import { build } from './worker'
 

@@ -1,0 +1,83 @@
+import json
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from cloudgen.data import CloudDataset, Manifest, UnscreenedShards, load_shards, turn_about_y
+
+
+def write_shards(folder: Path, n: int = 4, points: int = 16, screened=("u1", "u2"), include_key: bool = True):
+    folder.mkdir(parents=True, exist_ok=True)
+    meta = {"format": 1, "index": "objaverse-test", "rows": n, "points": points}
+    if include_key:
+        meta["screened"] = list(screened) if screened else None
+    (folder / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    cloud = np.random.default_rng(0).normal(size=(n, points, 6)).astype(np.float16)
+    np.save(folder / "shard-00000.points.npy", cloud)
+    rows = [{"uid": f"u{i}", "title": f"thing {i}", "caption": f"a thing number {i}"} for i in range(n)]
+    (folder / "shard-00000.jsonl").write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+
+
+def test_a_shard_without_a_manifest_is_refused(tmp_path):
+    (tmp_path / "shard-00000.points.npy").write_bytes(b"")
+    with pytest.raises(UnscreenedShards, match="no meta.json"):
+        Manifest.read(tmp_path)
+
+
+def test_a_manifest_without_a_screening_field_is_refused(tmp_path):
+    write_shards(tmp_path, include_key=False)
+    with pytest.raises(UnscreenedShards, match="screening field"):
+        Manifest.read(tmp_path)
+
+
+def test_a_checked_uid_list_is_named_in_the_record(tmp_path):
+    write_shards(tmp_path)
+    manifest, shards = load_shards(tmp_path)
+    assert manifest.screening_note == "2 uids checked by scripts/objaverse-nsfw.py"
+    assert shards[0].n == 4
+    assert shards[0].captions[1] == "a thing number 1"
+
+
+def test_the_shipped_index_is_named_as_its_own_screening(tmp_path):
+    write_shards(tmp_path, screened=None)
+    meta = json.loads((tmp_path / "meta.json").read_text(encoding="utf-8"))
+    meta["index"] = "objaverse-55663709-20000"
+    (tmp_path / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    manifest, _ = load_shards(tmp_path)
+    assert manifest.screening_note.startswith("the shipped index")
+
+
+def test_captions_and_clouds_have_to_agree(tmp_path):
+    write_shards(tmp_path)
+    (tmp_path / "shard-00000.jsonl").write_text("{}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="captions"):
+        load_shards(tmp_path)
+
+
+def test_a_turn_about_y_keeps_the_radius_and_turns_the_normal_with_the_point():
+    cloud = np.zeros((2, 16, 6), dtype=np.float32)
+    cloud[0, :, 0] = 1.0
+    cloud[0, :, 3] = 1.0
+    before = np.linalg.norm(cloud[0, :, :3], axis=1)
+    turn_about_y(cloud[..., :3], cloud[..., 3:], np.pi / 2)
+    after = np.linalg.norm(cloud[0, :, :3], axis=1)
+    assert np.allclose(before, after)
+    assert np.allclose(cloud[0, :, 0], 0, atol=1e-6)
+    assert np.allclose(cloud[0, :, 2], -1, atol=1e-6)
+    # the normal turned with it, or the shading would come from the wrong side
+    assert np.allclose(cloud[0, :, 3], 0, atol=1e-6)
+    assert np.allclose(cloud[0, :, 5], -1, atol=1e-6)
+
+
+def test_a_batch_is_clouds_and_captions_of_the_requested_size(tmp_path):
+    write_shards(tmp_path, n=8, points=16)
+    _, shards = load_shards(tmp_path)
+    dataset = CloudDataset(shards, seed=1)
+    cloud, picked, captions = dataset.batch(4)
+    assert cloud.shape == (4, 16, 6)
+    assert cloud.dtype == np.float32
+    assert len(captions) == 4
+    assert len(set(picked.tolist())) == 4, "a batch draws distinct rows"
+    assert dataset.captions()[picked[0]] == captions[0]
+    assert all(c.startswith("a thing number") for c in captions)

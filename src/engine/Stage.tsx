@@ -1,12 +1,13 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { GLYPH_FILL, type Shape } from '../objects'
+import { GLYPH_FILL, JITTER, type Shape } from '../objects'
+import { mapFrame, poolMap, type PoolMap } from '../objects/trajectory'
 import { DUST, Mode, N, R, THEMES, TINTS, Theme, TintId, clamp01, mulberry32, paletteInk, smooth } from './core'
 import { Atlas } from './glyphs'
-import { infoStore, stageApi } from './info'
+import { infoStore, stageApi, type Stream } from './info'
 import { occluderFrag, occluderVert, pointFrag, pointVert, shadowFrag, shadowVert } from './shaders'
-import { snapshotText } from './snapshot'
+import { snapshotText } from '../core/snapshot'
 
 type Props = {
   shape: Shape | null
@@ -437,9 +438,52 @@ export function Stage({ shape, mode, theme, palette, atlas, spin, orient, paused
     }
   }, [gl, camera, mat, reduce, invalidate, onZoom]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The stream in flight: a trajectory's frames, one commit each, at the rate they arrive. The
+  // mapping from 4,096 points to the pool lives in src/objects/trajectory.ts, next to the static
+  // cloud that uses it, so this only knows how to turn one mapped frame into a target.
+  const running = useRef<{ steps: Float32Array[]; ms: number; i: number; at: number; map: PoolMap } | null>(null)
+
+  const streamTarget = (run: { map: PoolMap }, frame: Float32Array): Target | null => {
+    const base = E.current.cur
+    if (!base) return null
+    const t: Target = {
+      shape: base.shape,
+      pos: base.pos.slice(), nrm: base.nrm.slice(),
+      col: base.col, size: base.size, alpha: base.alpha, order: base.order,
+    }
+    mapFrame(frame, run.map, t.pos, t.nrm)
+    return t
+  }
+
+  const stepStream = (run: { steps: Float32Array[]; ms: number; i: number; at: number; map: PoolMap }) => {
+    const frame = run.steps[run.i]
+    if (!frame) { running.current = null; return }
+    const t = streamTarget(run, frame)
+    if (t) commit(t, 0)
+    run.i += 1
+    run.at = E.current.time
+    if (run.i >= run.steps.length) running.current = null
+  }
+
   // ---------------------------------------------------------------- imperative hooks for the UI
   useEffect(() => {
     stageApi.burst = () => { const e = E.current; if (e.cur?.shape) enter(e.cur.shape, build(e.cur.shape), true) }
+    // The trajectory API. A source hands the stage a whole sampling walk and the stage springs
+    // through it: the assembly animation is the generation, not a flourish laid over it.
+    stageApi.stream = (s: Stream | null) => {
+      const e = E.current
+      running.current = null
+      if (!s || !s.steps.length || !e.cur?.shape) return
+      const points = s.steps[0].length / 6
+      const count = Math.min(e.cur.shape.count, N)
+      const map = poolMap(count, points, e.cur.shape.glyphSize * JITTER, s.seed)
+      const run = { steps: s.steps, ms: Math.max(16, s.ms), i: 0, at: e.time, map }
+      e.phase = 'assemble'; e.start = e.time; e.len = (s.steps.length * run.ms) / 1000 + 1.2
+      if (occ.current) occ.current.geometry = new THREE.BufferGeometry()
+      running.current = run
+      stepStream(run)
+      invalidate()
+    }
     stageApi.rotate = (dx, dy) => {
       const e = E.current
       const len = Math.hypot(dx, dy)
@@ -470,6 +514,10 @@ export function Stage({ shape, mode, theme, palette, atlas, spin, orient, paused
     e.time += dt
     const now = e.time, cur = e.cur
     if (!cur) return
+    // a trajectory commits its next frame on its own clock, not on the frame rate: the walk should
+    // take the time the model took, whatever the display is doing
+    const stream = running.current
+    if (stream && now - stream.at >= stream.ms / 1000) stepStream(stream)
     const shp = cur.shape
     const tPh = now - e.start
     if (e.phase !== 'idle' && tPh > e.len) e.phase = 'idle'

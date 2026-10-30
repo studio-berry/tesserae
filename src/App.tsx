@@ -20,6 +20,10 @@ import { Hud } from './ui/Hud'
 import { Panel } from './ui/Panel'
 
 const HINT = 'drag to turn · tap to ripple · drop a model anywhere'
+// The dev-only sources (`?traj=`, `?ply=`) are read once, at module load. The app writes its own URL
+// back on the first render, and React's dev-mode remount happens after that: an effect reading
+// `location.search` on the second mount finds the parameter already gone.
+const DEV_PARAMS = new URLSearchParams(typeof location === 'undefined' ? '' : location.search)
 const systemDark = () => matchMedia('(prefers-color-scheme: dark)').matches
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches
 const FADE = 150
@@ -64,6 +68,7 @@ export default function App() {
   const [tune, setTune] = useState(false)
   const [gen, setGen] = useState(0) // bumped when the graphics context comes back, to rebuild everything
   const [exported, setExported] = useState<ExportItem | null>(null)
+  const [trajectory, setTrajectory] = useState<{ steps: Float32Array[]; ms: number } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const touched = useRef(false) // the density slider has been moved by hand
   const shownKey = useRef<string | null>(null) // the source and seed on screen, so a refine stays quiet
@@ -117,6 +122,22 @@ export default function App() {
     return () => clearTimeout(t)
   }, [prompt, source]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A development link wins over the URL's own source: `?ply=` draws a cloud through the file loader
+  // and `?traj=` replays a sampling walk. Both are read once, at module load, because the app writes
+  // its own URL back on the first render and React's dev-mode remount happens after that.
+  useEffect(() => {
+    let live = true
+    import('./objects/dev-source')
+      .then(({ devSource }) => devSource(DEV_PARAMS))
+      .then((dev) => {
+        if (!live || !dev) return
+        setTrajectory(dev.play)
+        setSource(dev.source)
+      })
+      .catch((err: Error) => { if (live) { setError(err.message); setBusy(false) } })
+    return () => { live = false }
+  }, [])
+
   useEffect(() => {
     let live = true
     const id = sourceKey(source, seed)
@@ -135,6 +156,13 @@ export default function App() {
     const next = writeUrl({ source, text, prompt, chat, seed, density, mode, theme, palette, charset }, defaultDensity(innerWidth, innerHeight))
     try { history.replaceState(null, '', `${location.pathname}${next}`) } catch { /* sandboxed: sharing via URL just won't work */ }
   }, [source, text, prompt, chat, seed, density, mode, theme, palette, charset])
+
+  // once the trajectory's final frame is on the stage, replay the walk that made it. The stage's own
+  // effect has committed the shape by now: a child's effects run before its parent's.
+  useEffect(() => {
+    if (!shape || shape.kind !== 'trajectory' || !trajectory) return
+    stageApi.stream({ steps: trajectory.steps, ms: trajectory.ms, seed: 1 })
+  }, [shape, trajectory])
 
   // the canvas dims for one transition, the mode swaps while it is down, and it comes back up: that
   // reads as a crossfade without rendering both modes at once

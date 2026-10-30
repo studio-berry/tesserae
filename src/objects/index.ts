@@ -3,9 +3,10 @@ import { N, mulberry32 } from '../engine/core'
 import { checkTyped } from '../safety'
 import { chatStore, findChat } from './generate.ts'
 import { fromPrompt, normalisePrompt, type Provenance } from './prompt'
-import { Cloud, Samples, Soup, sampleCloud, sampleSoup } from './sample'
+import { Cloud, Samples, Soup, sampleCloud, sampleSoup } from '../core/sample'
 import { standUpright } from './orient'
 import { frontWeighted, surfaceFrom } from './soup'
+import { cloudOf, repeatCloud } from './trajectory'
 import type { Answer, Packed, Threaded } from './worker'
 
 export type { Provenance }
@@ -15,6 +16,7 @@ export type Source =
   | { kind: 'text'; text: string }
   | { kind: 'prompt'; text: string }
   | { kind: 'chat'; text: string }
+  | { kind: 'trajectory'; steps: Float32Array[]; name: string }
   | { kind: 'file'; name: string; object: THREE.Object3D; bytes: number }
 
 // Where a written scene came from. A generated object has no author to credit, but it does have a
@@ -55,6 +57,9 @@ const SCENE_DEADLINE_MS = 8_000
 // for the tightest library surface. The atlas ink fills 0.42 of a tile wide and 0.50 high, so at
 // 1.45 each letter keeps a little air on every side: neighbours sit next to each other rather than
 // stacking into a smear, and density, not glyph size, carries the detail.
+// how far a pool dot may sit from the point it stands in for, as a share of the glyph cell. One
+// number, because the still picture and the last frame of a walk have to land on the same cloud.
+export const JITTER = 0.35
 export const GLYPH_PITCH = 4.17
 export const GLYPH_FILL = 1.45
 export const glyphSizeFor = (count: number) => (GLYPH_PITCH * GLYPH_FILL) / Math.sqrt(Math.max(1, count))
@@ -119,6 +124,7 @@ export const sourceKey = (s: Source, seed: number) => {
   if (s.kind === 'text') return `text:${s.text}`
   if (s.kind === 'prompt') return `prompt:${normalisePrompt(s.text)}:${seed}`
   if (s.kind === 'chat') return `chat:${normalisePrompt(s.text)}:${seed}`
+  if (s.kind === 'trajectory') return `traj:${s.name}:${s.steps.length}`
   return `file:${s.object.uuid}`
 }
 
@@ -232,6 +238,18 @@ const drawChat = async (src: { kind: 'chat'; text: string }, seed: number, count
 
 const build = async (src: Source, seed: number, count: number): Promise<Made> => {
   if (src.kind === 'chat') return drawChat(src, seed, count)
+  // A trajectory is a model's walk, so the object is its last frame. The frames themselves are the
+  // stage's business (`stageApi.stream`), not this builder's: every one of them is a target, and the
+  // final one is what the shape settles into.
+  if (src.kind === 'trajectory') {
+    const last = src.steps[src.steps.length - 1]
+    const points = last.length / 6
+    const cloud = cloudOf(last, points)
+    return {
+      soup: null, cloud, samples: repeatCloud(cloud, count, 1, glyphSizeFor(count) * JITTER), source: null,
+      title: src.name, detail: `${src.steps.length} frames`, twoSided: false, flat: false,
+    }
+  }
   if (offThread(src)) {
     let packed: (Packed & { samples: Samples }) | null = null
     if (threaded) {
@@ -274,7 +292,7 @@ const prepareSource = async (src: Source, seed: number, count: number): Promise<
 // A refusal is thrown so it takes the same road as any other failure: the message shows and the
 // previous object stays on screen. The message never names the word.
 const gateSource = (src: Source) => {
-  const checked = src.kind === 'library' ? '' : src.kind === 'file' ? src.name : src.text
+  const checked = src.kind === 'library' ? '' : src.kind === 'file' ? src.name : src.kind === 'trajectory' ? src.name : src.text
   if (!checked) return
   const verdict = checkTyped(checked)
   if (!verdict.ok) throw new Error(verdict.reason)

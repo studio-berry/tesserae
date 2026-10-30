@@ -1,0 +1,13 @@
+{
+  "name": "gen-ascii",
+  "version": "0.1.0",
+  "description": "Draw an object as ASCII glyphs, in a terminal.",
+  "type": "module",
+  "bin": { "gen-ascii": "./dist/gen-ascii.mjs" },
+  "files": ["dist", "README.md"],
+  "engines": { "node": ">=20" },
+  "dependencies": { "three": "^0.176.0" },
+  "repository": { "type": "git", "url": "https://github.com/mberrys/gen-ascii" },
+  "license": "MIT",
+  "private": true
+}

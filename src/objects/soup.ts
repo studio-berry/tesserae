@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { Cloud, Material, Soup, TexSampler, normalize } from './sample'
+import { Cloud, Material, Soup, TexSampler, normalize } from '../core/sample'
 
 const SRGB = Float32Array.from({ length: 256 }, (_, i) => { const c = i / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4 })
 const LIN = Float32Array.from({ length: 256 }, (_, i) => i / 255)

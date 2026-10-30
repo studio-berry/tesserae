@@ -127,7 +127,19 @@ const kleinBottle: LibItem = {
 
 // three's Curve constructor is protected, so a curve of our own has to be a class
 class Helix extends THREE.Curve<THREE.Vector3> {
-  constructor(private turns: number, private phase: number, private h: number, private r: number) { super() }
+  // written out rather than as parameter properties: Node runs this file directly (the CLI), and its
+  // type stripping refuses that syntax
+  private turns: number
+  private phase: number
+  private h: number
+  private r: number
+  constructor(turns: number, phase: number, h: number, r: number) {
+    super()
+    this.turns = turns
+    this.phase = phase
+    this.h = h
+    this.r = r
+  }
   getPoint(t: number, out = new THREE.Vector3()) {
     const a = t * this.turns * 2 * Math.PI + this.phase
     return out.set(this.r * Math.cos(a), (t - 0.5) * this.h, this.r * Math.sin(a))
