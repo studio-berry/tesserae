@@ -20,6 +20,10 @@ import { Hud } from './ui/Hud'
 import { Panel } from './ui/Panel'
 
 const HINT = 'drag to turn · tap to ripple · drop a model anywhere'
+// The dev-only sources (`?traj=`, `?ply=`) are read once, at module load. The app writes its own URL
+// back on the first render, and React's dev-mode remount happens after that: an effect reading
+// `location.search` on the second mount finds the parameter already gone.
+const DEV_PARAMS = new URLSearchParams(typeof location === 'undefined' ? '' : location.search)
 const systemDark = () => matchMedia('(prefers-color-scheme: dark)').matches
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches
 const FADE = 150
@@ -122,7 +126,7 @@ export default function App() {
   // goes through the same file source a dropped scan does. It is a development path, not a share
   // link, so it never appears in the URL the app writes back.
   useEffect(() => {
-    const ply = new URLSearchParams(location.search).get('ply')
+    const ply = DEV_PARAMS.get('ply')
     if (!ply) return
     let live = true
     setBusy(true)
@@ -135,7 +139,7 @@ export default function App() {
   // A sampling trajectory, replayed: `?traj=/bench/samples/t001.traj&ms=60`. The object is the last
   // frame, so the picture is the same as the model's cloud; the frames before it are the assembly.
   useEffect(() => {
-    const query = new URLSearchParams(location.search)
+    const query = DEV_PARAMS
     const url = query.get('traj')
     if (!url) return
     let live = true

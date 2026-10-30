@@ -30,12 +30,18 @@ picture taken on the first pass is a half-built object.
 
 `bench/judge.ts` sends each image to a vision model with one question:
 
-> Does it read as "&lt;prompt&gt;"? Answer READ if a person would name it as that, or NOT if they
-> would not.
+> The image is a 3D object drawn as small glyphs, dots or lettering. Would an ordinary person
+> recognise this as "&lt;prompt&gt;"? Judge the shape and its distinctive parts, not the detail: a
+> coarse render that still has the body, limbs, spout or other parts that name the thing is a READ. A
+> different object, or a shapeless mass, is a NOT.
 
 Three calls per image at temperature 0.7, majority vote. The reply is parsed strictly: only a reply
 whose first word is `READ` counts as a read, and anything hedged counts as a miss. A judge that is
 allowed to be vague is not an instrument.
+
+The first wording asked "does it read as the prompt" and was harsher than a person: it called a
+recognisable Utah teapot "a sphere with two side tubes". The wording above names the bar, which is
+what a hand check is for.
 
 The model is pinned by a probe over the same gateway the app's scene writer uses:
 
@@ -95,6 +101,12 @@ because they are the record.
 - **A shared browser is a background tab.** Only the focused tab asks for frames, and this app only
   advances while it renders, so a second tab in one Chrome measured a frozen stage and reported
   every prompt as a failure. Each worker gets its own browser, port and profile.
+- **`Page.navigate` answers when the navigation starts, not when it lands.** Every DOM query in
+  between reaches the page the browser is leaving, so the phase, the title and the clock all come
+  from the previous prompt and read as a suspiciously fast render. The driver waits for
+  `location.search` to match the URL it asked for before it measures anything.
+- **A reasoning judge can spend its whole completion budget and return an empty string**, which the
+  parser scores as a NOT. The cap is 400 tokens, and a retry after two failures gives it 1,200.
 - **The dev server binds `::1` by default.** The runner passes `--host 127.0.0.1`, because headless
   Chrome pointed at `127.0.0.1` against a `::1` bind gets `ERR_CONNECTION_REFUSED`, which reads like
   a crashed app.
@@ -102,8 +114,35 @@ because they are the record.
   Copy it, or pass `--env <path>`; without a key the run still takes its screenshots and says so.
 - **The thumbnail is made by the same browser.** The screenshot is drawn into a 256x160 canvas in
   the page that took it, so the small picture is the same frame and not a second render.
+- **One prompt that will not load is a failed row, not the end of the run.** The runner records the
+  error and carries on; an hour of work must not be lost to one dead tab.
+
+## What was measured
+
+200 prompts, 12,000 glyphs, dark theme, one machine, 30 October 2026.
+
+| source | read | thumbnail | page clock p50 | wall p50 |
+|---|---|---|---|---|
+| search sources (`--sources prompt`) | 39% (78/200) | 35% | 269 ms | not recorded |
+| scene writer (`--sources chat`) | 50% (99/200) | 60% | 269 ms | not recorded |
+| the baseline model (`--sources ply`) | 0% (0/200) | 1% | 292 ms | 6.2 s |
+
+The search sources read best on animals (60 per cent) and worst on things in motion (15 per cent),
+which is what a phrase like "a wheel rolling" asks of a search index. The scene writer reads best on
+tools (75 per cent) and worst on buildings (25 per cent).
+
+**The page clock reads the app booting, not the source answering.** For the search sources that is
+close enough (the first glyph arrives with the object), but the baseline's own run shows the gap:
+292 ms on the page clock against 6.2 s of wall clock, and the scene writer's line in the app reads
+8.4 to 16.1 s. The runner records both numbers now; the wall column is what a fresh visit costs.
+
+**The judge agrees with an eye on 36 of 40 images (90 per cent).** `hand-check.jsonl` and
+`human.jsonl` are committed beside the report, so the check can be re-scored. All four disagreements
+were the judge accepting a render the eye refused, which makes the read rates a little generous
+rather than harsh. The plan's gate is 85 per cent.
 
 ## The baseline
+
 
 `--sources ply` scores a sampled cloud through the same path a dropped file takes: the runner opens
 `?ply=/bench/samples/<id>.ply`, the app fetches and parses the file with its own loader, and the stage

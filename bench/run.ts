@@ -106,15 +106,31 @@ async function main() {
     const started = Date.now()
     let done = 0
     const rows = await pool(chosen, CONCURRENCY, async (p, worker) => {
-      const tab = await Tab.open(CHROME_PORT + worker)
+      let tab: Tab | null = null
+      const fail = (why: string): Result => {
+        const row: Result = {
+          id: p.id, prompt: p.prompt, category: p.category, seed: p.seed, source,
+          drawn: false, error: why, title: '', firstGlyphMs: null, navMs: null, reads: null, readsThumb: null,
+          reason: '', shot: '', thumb: '',
+        }
+        appendFileSync(`${OUT}/results-${run}.jsonl`, JSON.stringify(row) + '\n')
+        console.log(`${source} ${p.id} FAILED ${why}`)
+        return row
+      }
       try {
+        tab = await Tab.open(CHROME_PORT + worker)
         await tab.installClock()
         // a fresh tab per prompt keeps one prompt's work off another's timing, but the first paint
         // pays for the atlas and the font, so every tab warms up on the plain app first
         await tab.navigate(`http://127.0.0.1:${PORT}/?theme=${THEME}&n=${DENSITY}`)
         await tab.settled(60_000)
+        const navAt = Date.now()
         await tab.navigate(urlFor(source, p))
         const settled = await tab.settled(source === 'chat' ? 120_000 : 60_000)
+        // the page's own clock is the sharper measurement, but it restarts with the document: a source
+        // that takes fifteen seconds to answer reports a few hundred milliseconds when the tab is
+        // replaced under it. The runner's wall clock cannot be fooled that way, so both are recorded.
+        const navMs = Date.now() - navAt
         const clock = await tab.clock()
         const shotName = `${source}-${p.id}.png`, thumbName = `${source}-${p.id}.thumb.png`
         let reads: boolean | null = null, readsThumb: boolean | null = null, reason = ''
@@ -131,7 +147,7 @@ async function main() {
         const row: Result = {
           id: p.id, prompt: p.prompt, category: p.category, seed: p.seed, source,
           drawn: settled.done, error: settled.error ?? '', title: settled.title ?? '',
-          firstGlyphMs: clock.firstGlyphMs, reads, readsThumb, reason,
+          firstGlyphMs: clock.firstGlyphMs, navMs, reads, readsThumb, reason,
           shot: settled.done ? `shots/${run}/${shotName}` : '',
           thumb: settled.done ? `shots/${run}/${thumbName}` : '',
         }
@@ -141,8 +157,11 @@ async function main() {
         appendFileSync(`${OUT}/results-${run}.jsonl`, JSON.stringify(row) + '\n')
         console.log(`${String(n).padStart(3)} ${source} ${p.id} ${settled.done ? (row.firstGlyphMs ?? '?') + 'ms' : 'FAILED'} ${reads === null ? '' : reads ? 'READ' : 'not'} ${p.prompt}`)
         return row
+      } catch (err) {
+        // one prompt that will not load is a failed row, not the end of an hour's run
+        return fail(err instanceof Error ? err.message : String(err))
       } finally {
-        await tab.close()
+        await tab?.close()
       }
     })
     results.push(...rows)

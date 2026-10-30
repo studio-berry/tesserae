@@ -11,6 +11,7 @@ export type Result = {
   error: string
   title: string
   firstGlyphMs: number | null
+  navMs?: number | null
   reads: boolean | null
   readsThumb: boolean | null
   reason: string
@@ -47,6 +48,8 @@ export type Summary = {
   thumbRate: number
   p50: number | null
   p95: number | null
+  wallP50: number | null
+  wallP95: number | null
 }
 
 export function summarise(rows: Result[]): Summary {
@@ -54,6 +57,7 @@ export function summarise(rows: Result[]): Summary {
   const judged = rows.filter((r) => r.reads !== null)
   const thumbs = rows.filter((r) => r.readsThumb !== null)
   const times = drawn.map((r) => r.firstGlyphMs).filter((t): t is number => typeof t === 'number')
+  const walls = drawn.map((r) => r.navMs).filter((t): t is number => typeof t === 'number')
   const read = judged.filter((r) => r.reads).length
   return {
     tested: rows.length,
@@ -65,6 +69,8 @@ export function summarise(rows: Result[]): Summary {
     thumbRate: pct(thumbs.filter((r) => r.readsThumb).length, thumbs.length),
     p50: quantile(times, 0.5),
     p95: quantile(times, 0.95),
+    wallP50: quantile(walls, 0.5),
+    wallP95: quantile(walls, 0.95),
   }
 }
 
@@ -97,10 +103,10 @@ export function markdown(rows: Result[], meta: Meta): string {
   const sources = meta.sources
   const overall = bySource(rows)
   const table = [
-    '| source | tested | drawn | reads | thumbnail reads | first glyph p50 | p95 |',
-    '|---|---|---|---|---|---|---|',
+    '| source | tested | drawn | reads | thumbnail reads | page clock p50 | p95 | wall p50 | p95 |',
+    '|---|---|---|---|---|---|---|---|---|',
     ...overall.map(({ source, summary: s }) =>
-      `| ${label(source)} | ${s.tested} | ${s.drawn} | ${s.readRate}% (${s.read}/${s.judged}) | ${s.thumbRate}% | ${s.p50 ?? '—'} ms | ${s.p95 ?? '—'} ms |`),
+      `| ${label(source)} | ${s.tested} | ${s.drawn} | ${s.readRate}% (${s.read}/${s.judged}) | ${s.thumbRate}% | ${s.p50 ?? '—'} ms | ${s.p95 ?? '—'} ms | ${s.wallP50 ?? '—'} ms | ${s.wallP95 ?? '—'} ms |`),
   ].join('\n')
 
   const misses = rows

@@ -148,7 +148,20 @@ export class Tab {
   }
 
   async navigate(url: string): Promise<void> {
-    await this.send('Page.navigate', { url }, 90_000)
+    const want = new URL(url).search
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await this.send('Page.navigate', { url }, 90_000)
+      // Page.navigate answers when the navigation starts, not when it lands: DOM queries still reach
+      // the previous document until the new one commits, and every measurement taken in that window is
+      // a measurement of the page the browser is leaving.
+      const until = Date.now() + 30_000
+      while (Date.now() < until) {
+        const here = await this.evaluate<string>('location.search').catch(() => null)
+        if (here === want) return
+        await sleep(40)
+      }
+    }
+    throw new Error(`navigation to ${url} did not commit`)
   }
 
   async clock(): Promise<{ firstGlyphMs: number | null; readyMs: number | null }> {

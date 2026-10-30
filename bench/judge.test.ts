@@ -38,7 +38,7 @@ describe('judgeRequest', () => {
   it('asks the pinned question about the prompt with one image part', () => {
     const content = (body.messages[0] as { content: { type: string; text?: string; image_url?: { url: string } }[] }).content
     expect(content).toHaveLength(2)
-    expect(content[0].text).toContain('Does it read as "a teapot"')
+    expect(content[0].text).toContain('Would an ordinary person recognise this as "a teapot"')
     expect(content[1].image_url?.url.startsWith('data:image/png;base64,')).toBe(true)
   })
 

@@ -18,8 +18,10 @@ export const TEMPERATURE = 0.7
 export type Verdict = { reads: boolean; reason: string }
 
 export const question = (prompt: string) =>
-  `The image is a picture of a 3D object drawn as small glyphs, dots or lettering. Does it read as "${prompt}"? ` +
-  `Answer READ if a person would name it as that, or NOT if they would not. ` +
+  `The image is a 3D object drawn as small glyphs, dots or lettering. ` +
+  `Would an ordinary person recognise this as "${prompt}"? ` +
+  `Judge the shape and its distinctive parts, not the detail: a coarse render that still has the body, ` +
+  `limbs, spout or other parts that name the thing is a READ. A different object, or a shapeless mass, is a NOT. ` +
   `Begin with exactly one of those two words, then give at most ten words of reason on the same line.`
 
 // Strict on the first token: READ wins only when the first word is READ. A reply that hedges or
@@ -39,10 +41,13 @@ export type JudgeRequest = { model: string; max_tokens: number; temperature: num
 
 // The body is built here rather than inline at the call site so the test can hold its shape: one
 // text part, one image part, the pinned model, and the temperature that makes the calls independent.
-export function judgeRequest(png: Buffer, prompt: string, model = JUDGE_MODEL): JudgeRequest {
+export function judgeRequest(png: Buffer, prompt: string, model = JUDGE_MODEL, maxTokens = 400): JudgeRequest {
   return {
     model,
-    max_tokens: 120,
+    // a reasoning model spends completion tokens before it answers, and a cap that is too low comes
+    // back as an empty string rather than a short answer: 400 leaves room for the trace and the
+    // verdict, and the parse still needs one of two words
+    max_tokens: maxTokens,
     temperature: TEMPERATURE,
     messages: [{
       role: 'user',
@@ -73,7 +78,8 @@ export const judgeFrom = (env: Record<string, string | undefined>): Judge | null
 
 async function ask(judge: Judge, png: Buffer, prompt: string): Promise<Verdict> {
   let last = ''
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const cap = attempt >= 2 ? 1200 : 400 // a reply that ran out of room gets a bigger room
     let res: Response
     try {
       res = await fetch(judge.url, {
@@ -83,7 +89,7 @@ async function ask(judge: Judge, png: Buffer, prompt: string): Promise<Verdict> 
           authorization: `Bearer ${judge.key}`,
           'x-opencode-session': 'gen-ascii-bench',
         },
-        body: JSON.stringify(judgeRequest(png, prompt, judge.model)),
+        body: JSON.stringify(judgeRequest(png, prompt, judge.model, cap)),
         signal: AbortSignal.timeout(120_000),
       })
     } catch (err) {

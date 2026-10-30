@@ -19,6 +19,9 @@ __pycache__/
 .env
 .env.local
 
+# sampled clouds and walks: 200 of them is a gigabyte, and ml/cloudgen/to_bench.py writes them
+bench/samples/
+
 # the benchmark's pictures: 200 renders a run is 80 MB, and the report is what a reader needs
 bench/results/**/shots/
 
@@ -27,3 +30,6 @@ ml/.venv/
 ml/**/__pycache__/
 ml/runs/
 ml/runs*.log
+
+# the CLI bundle: built from cli/ and shipped by npm, never committed
+cli/dist/
