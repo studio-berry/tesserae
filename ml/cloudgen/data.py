@@ -9,6 +9,9 @@ no colour) and `.jsonl` (one row per cloud: uid, title, caption, credit).
 Nothing here downloads anything: the shards are the input, and a shard set whose manifest cannot say
 what it was screened by is refused rather than trained on. That is the one rule this module exists to
 enforce (J3 in the plan).
+
+A training run can read several folders at once, in groups with a weight each: 20,000 Objaverse
+rows beside a million procedural ones would otherwise be 2 per cent of every batch.
 """
 
 from __future__ import annotations
@@ -31,6 +34,8 @@ class Manifest:
     points: int
     screened: object
     revisions: dict[str, str]
+    folder: str = ""
+    provenance: dict | None = None
 
     @classmethod
     def read(cls, folder: Path) -> "Manifest":
@@ -46,6 +51,9 @@ class Manifest:
             points=int(meta.get("points", 0)),
             screened=meta.get("screened"),
             revisions=dict(meta.get("revisions", {})),
+            # absolute, so the clean script can tell which runs read which folder
+            folder=str(folder.resolve()),
+            provenance=meta.get("provenance"),
         )
 
     @property
@@ -120,22 +128,144 @@ def turn_about_y(pos: np.ndarray, nrm: np.ndarray, angle: float) -> None:
         xyz[..., 2] = z * c - x * s
 
 
-class CloudDataset:
-    """Batches of `[B, P, 6]` clouds with their captions, drawn from the shards in order."""
+@dataclass
+class Group:
+    """One `--data` argument: the folders it named, their shards, and its share of each batch."""
 
-    def __init__(self, shards: list[Shard], seed: int = 0, turn: bool = True):
+    folders: list[str]
+    manifests: list[Manifest]
+    shards: list[Shard]
+    weight: float | None = None
+
+    @property
+    def rows(self) -> int:
+        return sum(s.n for s in self.shards)
+
+    def record(self) -> dict:
+        """What a run's train.json says about this group, so a checkpoint names every folder it read."""
+        return {
+            "folders": self.folders,
+            "weight": self.weight,
+            "rows": self.rows,
+            "shards": len(self.shards),
+            "manifests": [
+                {
+                    "folder": m.folder, "index": m.index, "rows": m.rows, "screening": m.screening_note,
+                    "revisions": m.revisions, "provenance": m.provenance,
+                }
+                for m in self.manifests
+            ],
+        }
+
+
+def load_groups(groups: list[list[str]], limit_shards: int | None = None) -> list[Group]:
+    """Each inner list is one group of folders. Every folder is checked by the rules in `load_shards`."""
+    out: list[Group] = []
+    points: int | None = None
+    for folders in groups:
+        manifests: list[Manifest] = []
+        shards: list[Shard] = []
+        for folder in folders:
+            manifest, found = load_shards(folder, limit_shards=limit_shards)
+            width = int(found[0].points.shape[1])
+            if points is None:
+                points = width
+            elif width != points:
+                raise ValueError(f"{folder} holds clouds of {width} points and an earlier folder {points}")
+            manifests.append(manifest)
+            shards.extend(found)
+        out.append(Group(folders=list(folders), manifests=manifests, shards=shards))
+    return out
+
+
+def parse_mix(text: str | None, groups: int) -> list[float] | None:
+    """`--mix 0.75,0.25` to weights that sum to one, or None for one draw over every row."""
+    if not text:
+        return None
+    try:
+        weights = [float(w) for w in text.split(",")]
+    except ValueError:
+        raise ValueError(f"--mix takes numbers separated by commas, not {text!r}") from None
+    if len(weights) != groups:
+        raise ValueError(f"--mix has {len(weights)} weights for {groups} --data groups")
+    if any(not np.isfinite(w) or w <= 0 for w in weights):
+        raise ValueError("every --mix weight must be a positive number")
+    total = sum(weights)
+    return [w / total for w in weights]
+
+
+def caption_table(captions: list[str]) -> tuple[list[str], np.ndarray]:
+    """The distinct captions in first-seen order, and each row's position in them.
+
+    Procedural captions are templated, so a million rows hold a few thousand sentences. The text
+    encoder runs over the distinct ones and the training loop indexes through `ids`.
+    """
+    seen: dict[str, int] = {}
+    ids = np.fromiter((seen.setdefault(c, len(seen)) for c in captions), dtype=np.int64, count=len(captions))
+    return list(seen), ids
+
+
+class CloudDataset:
+    """Batches of `[B, P, 6]` clouds with their captions, drawn from the shards in order.
+
+    With `groups` and `weights`, each batch slot first picks a group by weight and then a row in it.
+    Without them, a batch is one draw over every row, as it was before groups existed, so a run
+    with one folder and no `--mix` draws the same batches it always did.
+    """
+
+    def __init__(
+        self,
+        shards: list[Shard],
+        seed: int = 0,
+        turn: bool = True,
+        groups: list[int] | None = None,
+        weights: list[float] | None = None,
+    ):
         self.shards = shards
         self.seed = seed
         self.turn = turn
         self.rng = np.random.default_rng(seed)
         # an index of every row, so a batch can span shards after the first pass
         self.index = [(s, i) for s, shard in enumerate(shards) for i in range(shard.n)]
+        self.weights = weights
+        self.spans: list[tuple[int, int]] = []
+        if weights is not None:
+            if groups is None or len(groups) != len(shards):
+                raise ValueError("weights need a group for every shard")
+            if list(groups) != sorted(groups):
+                raise ValueError("shards must be listed group by group")
+            count = max(groups) + 1 if groups else 0
+            if len(weights) != count:
+                raise ValueError(f"{len(weights)} weights for {count} groups")
+            ends = [0] * count
+            for g, shard in zip(groups, shards):
+                ends[g] += shard.n
+            start = 0
+            for n in ends:
+                if n == 0:
+                    raise ValueError("a weighted group holds no rows")
+                self.spans.append((start, start + n))
+                start += n
 
     def __len__(self) -> int:
         return len(self.index)
 
+    def _take(self, size: int) -> np.ndarray:
+        if self.weights is None:
+            return self.rng.choice(len(self.index), size=size, replace=False)
+        per = self.rng.multinomial(size, self.weights)
+        parts = []
+        for (start, end), k in zip(self.spans, per):
+            if k:
+                n = end - start
+                # a group smaller than its share of one batch repeats rows rather than failing
+                parts.append(start + self.rng.choice(n, size=int(k), replace=bool(k > n)))
+        take = np.concatenate(parts)
+        self.rng.shuffle(take)
+        return take
+
     def batch(self, size: int) -> tuple[np.ndarray, np.ndarray, list[str]]:
-        take = self.rng.choice(len(self.index), size=size, replace=False)
+        take = self._take(size)
         out = np.empty((size, self.shards[0].points.shape[1], 6), dtype=np.float32)
         captions: list[str] = [""] * size
         # gathered a shard at a time: one fancy-index into the mmap per shard instead of one per row,

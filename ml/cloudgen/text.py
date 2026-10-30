@@ -65,7 +65,8 @@ class MiniLM:
     def encode(self, texts: list[str], batch: int = 64) -> np.ndarray:
         import torch
 
-        todo = [t for t in texts if t not in self._cache]
+        # each distinct text once: a repeated caption would otherwise be encoded every time it appears
+        todo = list(dict.fromkeys(t for t in texts if t not in self._cache))
         for start in range(0, len(todo), batch):
             chunk = todo[start : start + batch]
             with torch.no_grad():

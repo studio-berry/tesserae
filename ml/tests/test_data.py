@@ -97,3 +97,81 @@ def test_a_batch_is_clouds_and_captions_of_the_requested_size(tmp_path):
     assert len(set(picked.tolist())) == 4, "a batch draws distinct rows"
     assert dataset.captions()[picked[0]] == captions[0]
     assert all(c.startswith("a thing number") for c in captions)
+
+
+def test_mix_weights_are_normalised_and_checked():
+    from cloudgen.data import parse_mix
+
+    assert parse_mix(None, 2) is None
+    assert parse_mix("3,1", 2) == [0.75, 0.25]
+    with pytest.raises(ValueError, match="2 weights for 3"):
+        parse_mix("1,1", 3)
+    with pytest.raises(ValueError, match="positive"):
+        parse_mix("1,0", 2)
+    with pytest.raises(ValueError, match="commas"):
+        parse_mix("a,b", 2)
+
+
+def test_a_group_of_folders_loads_every_folder_and_records_each(tmp_path):
+    from cloudgen.data import load_groups
+
+    write_shards(tmp_path / "a", n=4)
+    write_shards(tmp_path / "b", n=6)
+    write_shards(tmp_path / "c", n=3)
+    groups = load_groups([[str(tmp_path / "a")], [str(tmp_path / "b"), str(tmp_path / "c")]])
+    assert [g.rows for g in groups] == [4, 9]
+    record = groups[1].record()
+    assert record["rows"] == 9 and record["shards"] == 2
+    assert [m["folder"] for m in record["manifests"]] == [str((tmp_path / "b").resolve()), str((tmp_path / "c").resolve())]
+
+
+def test_folders_with_different_point_counts_are_refused(tmp_path):
+    from cloudgen.data import load_groups
+
+    write_shards(tmp_path / "a", points=16)
+    write_shards(tmp_path / "b", points=32)
+    with pytest.raises(ValueError, match="points"):
+        load_groups([[str(tmp_path / "a")], [str(tmp_path / "b")]])
+
+
+def test_a_weighted_batch_takes_each_group_at_its_share(tmp_path):
+    from cloudgen.data import load_groups
+
+    # one group of 20 rows against one of 400: by row count the small one would be 5 per cent
+    write_shards(tmp_path / "small", n=20)
+    write_shards(tmp_path / "large", n=400)
+    groups = load_groups([[str(tmp_path / "small")], [str(tmp_path / "large")]])
+    shards = [s for g in groups for s in g.shards]
+    owner = [k for k, g in enumerate(groups) for _ in g.shards]
+    dataset = CloudDataset(shards, seed=3, groups=owner, weights=[0.5, 0.5])
+    small = 0
+    total = 0
+    for _ in range(200):
+        _, picked, _ = dataset.batch(16)
+        small += int((picked < 20).sum())
+        total += len(picked)
+    assert 0.45 < small / total < 0.55
+
+
+def test_without_weights_a_batch_is_the_same_draw_as_before(tmp_path):
+    write_shards(tmp_path, n=8)
+    _, shards = load_shards(tmp_path)
+    picked = CloudDataset(shards, seed=1).batch(4)[1]
+    expected = np.random.default_rng(1).choice(8, size=4, replace=False)
+    assert picked.tolist() == expected.tolist()
+
+
+def test_weights_need_shards_in_group_order(tmp_path):
+    write_shards(tmp_path / "a", n=4)
+    _, a = load_shards(tmp_path / "a")
+    with pytest.raises(ValueError, match="group by group"):
+        CloudDataset(a + a, groups=[1, 0], weights=[0.5, 0.5])
+
+
+def test_the_caption_table_holds_each_caption_once_in_order():
+    from cloudgen.data import caption_table
+
+    distinct, ids = caption_table(["a knot", "a shell", "a knot", "a donut", "a shell"])
+    assert distinct == ["a knot", "a shell", "a donut"]
+    assert ids.tolist() == [0, 1, 0, 2, 1]
+    assert [distinct[i] for i in ids] == ["a knot", "a shell", "a knot", "a donut", "a shell"]

@@ -30,6 +30,8 @@ The flags:
 | `--points` | 4096 | samples per cloud |
 | `--seed` | 0 | the first seed; the sweep runs upward from it |
 | `--limit-items` | every item | only the first N library items, for a smoke run |
+| `--no-rgb` | off | leave the colour arrays out; most forms have no colour and the loader does not read them |
+| `--allow-dirty` | off | run from uncommitted source; the shards are then marked as never to be deleted and rebuilt |
 
 Nine items means 1,000 clouds is 112 seeds (9 × 111 + 1) and a million clouds 111,112.
 
@@ -40,10 +42,10 @@ Identical to the Objaverse export, format 1:
 | file | holds |
 |---|---|
 | `shard-NNNNN.points.npy` | float16, `[n, P, 6]`: x, y, z, then the unit normal |
-| `shard-NNNNN.rgb.npy` | uint8, `[n, P, 3]`: sRGB colour, 255 where the form has none |
+| `shard-NNNNN.rgb.npy` | uint8, `[n, P, 3]`: sRGB colour, 255 where the form has none; absent with `--no-rgb` |
 | `shard-NNNNN.jsonl` | one line per cloud, in order: uid, title, caption, author, licence, url, triangles, colored, textured |
 | `shard-NNNNN.failed.jsonl` | the rows that were lost and why; empty on every run so far |
-| `meta.json` | the format, the index, the counts and the screening note |
+| `meta.json` | the format, the index, the counts, the screening note, `rgb`, and `provenance`: the commit, any uncommitted source files, the sha256 of the export script that ran, and the Node version |
 
 - **The space** is the unit sphere: `surfaceFrom` leaves a form at the stage's radius of 1.9, and the
   export scales that to 1, which is what the Objaverse shards hold. A model trained on both sees one
@@ -65,7 +67,31 @@ about 61 MB, the same as a shard of Objaverse models. A million clouds is 1,000 
 The run resumes: a shard is written file by file and renamed into place, and a shard counts as done
 when its `.jsonl` is there, so a stopped run skips what it already wrote. `meta.json` keeps the row
 count, a sha256 of the uids in order and the item list, so a second run into the same folder with
-another `--count`, `--seed` or set of items is refused rather than mixed into the first.
+another `--count`, `--seed` or set of items is refused rather than mixed into the first. A resume is
+also refused from another commit, another build of the script, or another `--no-rgb` setting.
+
+## Deleting and rebuilding
+
+The shards are generated from seeds, so they do not have to be kept. Two things make that safe:
+
+- **The export records the code that ran.** `meta.json` holds the commit and the sha256 of the bundled
+  script, and the export refuses to start when `src/`, `scripts/`, `package.json` or
+  `package-lock.json` has uncommitted changes, because shards from that state could not be rebuilt.
+  esbuild writes the bundle byte for byte the same from the same source, whatever the output path,
+  so the hash identifies the build.
+- **`scripts/procedural-clean.ts` proves a rebuild before it deletes.**
+
+```sh
+node scripts/procedural-clean.ts --root .cache/procedural --runs ml/runs/R0a,ml/runs/R0b --dry-run
+node scripts/procedural-clean.ts --root .cache/procedural --runs ml/runs/R0a,ml/runs/R0b
+```
+
+It refuses unless every listed run's `train.json` says `finished`, HEAD is the recorded commit with
+no uncommitted source, and the script it rebuilds hashes to the recorded build. It then regenerates
+the first shard of the first and last part (`--verify` picks others) and compares the points, the
+rows and any colour byte for byte. Only then does it hash every point and colour array, write
+`deleted.json` under `--root` with those hashes and the command that rebuilds each part, and delete
+the arrays. `meta.json` and the `.jsonl` rows stay, so what each row was is still on disk.
 
 ## The captions
 

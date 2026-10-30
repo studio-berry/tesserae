@@ -18,6 +18,10 @@ npm run export:objaverse                      # 20,000 rows into .cache/training
 # 2. train
 python -m cloudgen.train --data ../.cache/training/objaverse --out runs/base --steps 30000
 
+# or several folders, each --data one group, with each group's share of a batch
+python -m cloudgen.train --data ../.cache/training/objaverse --data ../.cache/procedural/part-* \
+  --mix 0.75,0.25 --precision bf16 --out runs/mix --steps 30000
+
 # 3. sample, one trajectory and one cloud per prompt
 python -m cloudgen.sample --ckpt runs/base/last.pt --prompts ../bench/prompts.jsonl \
   --steps 32 --out runs/base/samples
@@ -31,10 +35,10 @@ npm run bench -- --sources ply
 
 | module | holds |
 |---|---|
-| `cloudgen/data.py` | the shard reader, the manifest rules, a batch with a random turn about Y |
+| `cloudgen/data.py` | the shard reader, the manifest rules, folder groups and their mix, a batch with a random turn about Y |
 | `cloudgen/text.py` | the frozen text encoder, and the hashed stand-in for an offline test |
 | `cloudgen/model.py` | the patch transformer, the rectified-flow loss and the Euler walk |
-| `cloudgen/train.py` | the loop, the record a model card quotes |
+| `cloudgen/train.py` | the loop, bf16 autocast on request, the record a model card quotes (every folder read, with its commit) |
 | `cloudgen/sample.py` | a prompt to a `.traj` and a `.ply` |
 | `cloudgen/traj.py` | the `.traj` format the app reads, and the `.ply` writer |
 | `cloudgen/to_bench.py` | sampled clouds into `bench/samples/` |

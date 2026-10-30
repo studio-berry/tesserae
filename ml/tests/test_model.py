@@ -69,3 +69,27 @@ def test_the_time_embedding_is_bounded_and_differs_per_step():
     assert emb.shape == (3, 128)
     assert torch.isfinite(emb).all()
     assert not torch.allclose(emb[0], emb[1])
+
+
+def test_a_bf16_step_gives_a_finite_fp32_loss_and_fp32_gradients():
+    from cloudgen.train import step_loss
+
+    model = tiny()
+    loss = step_loss(model, torch.randn(2, 64, 6), torch.randn(2, 16), "bf16")
+    assert loss.dtype == torch.float32
+    assert torch.isfinite(loss)
+    loss.backward()
+    grads = [p.grad for p in model.parameters() if p.grad is not None]
+    assert grads and all(g.dtype == torch.float32 for g in grads)
+
+
+def test_an_fp32_step_is_the_plain_flow_loss():
+    from cloudgen.train import step_loss
+
+    model = tiny()
+    cloud, text = torch.randn(2, 64, 6), torch.randn(2, 16)
+    torch.manual_seed(5)
+    a = step_loss(model, cloud, text, "fp32")
+    torch.manual_seed(5)
+    b = flow_loss(model, cloud, text)
+    assert torch.equal(a, b)
