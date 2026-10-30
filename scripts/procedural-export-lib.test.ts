@@ -13,7 +13,7 @@ import {
 import { checkParts, checkRuns, defaultVerify, deletable, partsReadBy, type Part } from './procedural-clean.ts'
 
 const items = ['teapot', 'knot', 'shell'].map((id) => ({ id }))
-const prov = (over: Partial<Provenance> = {}): Provenance => ({ commit: 'a'.repeat(40), dirty: [], bundle: 'b'.repeat(64), node: 'v24', ...over })
+const prov = (over: Partial<Provenance> = {}): Provenance => ({ commit: 'a'.repeat(40), dirty: [], bundle: 'b'.repeat(64), three: '0.176.0', node: 'v24', ...over })
 
 describe('the export arguments', () => {
   it('keeps colour unless --no-rgb, and refuses dirty source unless --allow-dirty', () => {
@@ -70,6 +70,7 @@ describe('resuming into a folder', () => {
   it('refuses another commit, another build, another colour setting or a folder from before the record', () => {
     expect(resumeConflict({ ...now, provenance: prov({ commit: 'c'.repeat(40) }) }, now)).toMatch(/commit/)
     expect(resumeConflict({ ...now, provenance: prov({ bundle: 'd'.repeat(64) }) }, now)).toMatch(/build/)
+    expect(resumeConflict({ ...now, provenance: prov({ three: '0.177.0' }) }, now)).toMatch(/three/)
     expect(resumeConflict({ ...now, rgb: false }, now)).toMatch(/colour/)
     const { provenance: _, ...old } = now
     expect(resumeConflict(old, now)).toMatch(/before/)
@@ -99,6 +100,7 @@ describe('the clean checks', () => {
     expect(() => checkParts([part('part-0', { dirty: ['src/x.ts'] })])).toThrow(/uncommitted/)
     expect(() => checkParts([part('part-0'), part('part-1', { commit: 'c'.repeat(40) })])).toThrow(/one commit/)
     expect(() => checkParts([part('part-0'), part('part-1', { bundle: 'e'.repeat(64) })])).toThrow(/different builds/)
+    expect(() => checkParts([part('part-0'), part('part-1', { three: '0.177.0' })])).toThrow(/versions of three/)
     const bare = part('part-0')
     delete (bare.meta as { provenance?: unknown }).provenance
     expect(() => checkParts([bare])).toThrow(/no record/)

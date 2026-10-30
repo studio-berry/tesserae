@@ -83,7 +83,17 @@ export type Provenance = {
   commit: string
   dirty: string[]
   bundle: string // sha256 of the script file that ran, which esbuild writes byte for byte the same
+  three: string // the bundle leaves three external, so its version is recorded beside the hash
   node: string
+}
+
+// The installed three, read from where the bundle resolves it.
+export const threeVersion = (cwd: string): string => {
+  try {
+    return (JSON.parse(readFileSync(`${cwd}/node_modules/three/package.json`, 'utf8')) as { version: string }).version
+  } catch {
+    return 'unknown'
+  }
 }
 
 // `git status --porcelain` lines to paths. A rename reads "R  old -> new"; the new path is the one
@@ -114,7 +124,7 @@ export const provenanceOf = (cwd: string, script: string): Provenance => {
   } catch {
     throw new Error('the export records the git commit it ran at, and git could not say what it is; run it inside the repository')
   }
-  return { commit, dirty, bundle: sha256File(script), node: process.version }
+  return { commit, dirty, bundle: sha256File(script), three: threeVersion(cwd), node: process.version }
 }
 
 // A run from uncommitted code writes shards nobody can rebuild, so it needs to be asked for.
@@ -180,6 +190,7 @@ export const resumeConflict = (was: Partial<Meta>, now: Meta): string | null => 
   if (!was.provenance) return 'export from before runs recorded their commit'
   if (was.provenance.commit !== now.provenance.commit) return `commit (${was.provenance.commit.slice(0, 12)})`
   if (was.provenance.bundle !== now.provenance.bundle) return 'build of the export script'
+  if (was.provenance.three !== now.provenance.three) return `version of three (${was.provenance.three})`
   if (JSON.stringify(was.provenance.dirty) !== JSON.stringify(now.provenance.dirty)) return 'set of uncommitted changes'
   return null
 }

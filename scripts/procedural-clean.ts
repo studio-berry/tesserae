@@ -4,13 +4,15 @@
 //   node scripts/procedural-clean.ts --root .cache/procedural --runs ml/runs/R0a,ml/runs/R0b --dry-run
 //   node scripts/procedural-clean.ts --root .cache/procedural --runs ml/runs/R0a,ml/runs/R0b
 //
-// Run it from the repository root, at the commit the shards were written from. In order it:
+// Run it from the repository root. In order it:
 //
 // 1. reads every part under --root (a folder with a procedural meta.json) and refuses a part that
-//    was written from uncommitted code, or parts written from different commits or builds;
+//    was written from uncommitted code, or parts written from different commits, builds or threes;
 // 2. refuses unless every run in --runs has finished (its train.json carries `finished`);
-// 3. refuses unless HEAD is that commit and the source has no uncommitted changes;
-// 4. rebuilds the export bundle and refuses unless it hashes to the build recorded in meta.json;
+// 3. refuses unless the installed three is the version the shards were written with;
+// 4. builds the export from this checkout and refuses unless it hashes to the build recorded in
+//    meta.json. A later commit that left the generating code alone builds the same bundle, so the
+//    checkout only has to go back to the recorded commit when that code changed;
 // 5. regenerates the first shard of the first and last part (or the parts in --verify) and refuses
 //    unless the points and rows match the shards on disk byte for byte;
 // 6. hashes every point and colour array, writes deleted.json with the hashes and the commands
@@ -25,14 +27,7 @@ import { mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-import {
-  dirtyFrom,
-  rebuildArgs,
-  SOURCE_PATHS,
-  sha256File,
-  shardName,
-  type Meta,
-} from './procedural-export-lib.ts'
+import { rebuildArgs, sha256File, shardName, threeVersion, type Meta } from './procedural-export-lib.ts'
 
 // The same build the npm script runs, so the bundle hashes to what the export recorded.
 export const BUILD = {
@@ -79,6 +74,7 @@ export const checkParts = (parts: Part[]): { commit: string; bundle: string } =>
   for (const p of parts) {
     if (p.meta.provenance.commit !== commit) throw new Error(`${p.name} was written at ${p.meta.provenance.commit.slice(0, 12)} and ${parts[0].name} at ${commit.slice(0, 12)}; clean one commit at a time`)
     if (p.meta.provenance.bundle !== bundle) throw new Error(`${p.name} and ${parts[0].name} were written by different builds of the export; clean them separately`)
+    if (p.meta.provenance.three !== parts[0].meta.provenance.three) throw new Error(`${p.name} and ${parts[0].name} were written with different versions of three; clean them separately`)
   }
   return { commit, bundle }
 }
@@ -108,12 +104,6 @@ const hashStream = (path: string) =>
       .on('end', () => ok(h.digest('hex')))
       .on('error', fail)
   })
-
-const git = (args: string[]) => {
-  const r = spawnSync('git', args, { encoding: 'utf8' })
-  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr.trim()}`)
-  return r.stdout
-}
 
 const readParts = (root: string): Part[] =>
   readdirSync(root, { withFileTypes: true })
@@ -150,46 +140,55 @@ const main = async () => {
   const unread = parts.filter((p) => !read.has(p.name)).map((p) => p.name)
   if (unread.length) console.log(`  no listed run read ${unread.join(', ')}; they are deleted too, since they rebuild like the rest`)
 
-  // 3. the checkout has to be the code that wrote them
-  const head = git(['rev-parse', 'HEAD']).trim()
-  if (head !== commit) throw new Error(`HEAD is ${head.slice(0, 12)} and the shards were written at ${commit.slice(0, 12)}: git checkout ${commit} first`)
-  const dirty = dirtyFrom(git(['status', '--porcelain', '--untracked-files=no', '--', ...SOURCE_PATHS]))
-  if (dirty.length) throw new Error(`uncommitted changes in ${dirty.join(', ')}; the rebuild has to run the committed code`)
+  // 3. three sits outside the bundle, so its version is checked on its own
+  const three = threeVersion(process.cwd())
+  if (three !== parts[0].meta.provenance.three) {
+    throw new Error(`three ${three} is installed and the shards were written with ${parts[0].meta.provenance.three}: git checkout ${commit} && npm ci first`)
+  }
 
-  // 4. the build has to be the one that ran
-  const work = join(root, 'verify-bundle')
-  rmSync(work, { recursive: true, force: true })
-  await mkdir(work, { recursive: true })
-  const script = join(work, 'procedural-export.mjs')
-  const { build } = await import('esbuild')
-  await build({ ...BUILD, outfile: script })
-  if (sha256File(script) !== bundle) throw new Error('the export script built from this commit differs from the build that wrote the shards, so a rebuild would not match them')
-  console.log('  the export builds to the recorded bundle')
-
-  // 5. regenerate the first shard of the parts being checked and compare
+  // 4. the build has to be the one that ran. The checkout does not have to be the same commit,
+  // only the same generating code, which the bundle's hash pins exactly. It is written inside the
+  // repository, because the bundle leaves three and the other packages external and Node finds
+  // them from where it sits
+  const work = join(process.cwd(), '.cache', 'procedural-verify')
   const verify = args.verify.length ? args.verify : defaultVerify(parts)
   const checked: { part: string; files: Record<string, string> }[] = []
-  for (const name of verify) {
-    const part = parts.find((p) => p.name === name)
-    if (!part) throw new Error(`--verify names ${name}, which is not a part under --root`)
-    const out = join(root, `verify-${name}`)
-    rmSync(out, { recursive: true, force: true })
-    const r = spawnSync(process.execPath, ['--max-old-space-size=4096', script, ...rebuildArgs(part.meta, out, true)], { encoding: 'utf8' })
-    if (r.status !== 0) throw new Error(`rebuilding ${name} failed: ${(r.stderr || r.stdout).trim()}`)
-    const first = shardName(0)
-    const files: Record<string, string> = {}
-    for (const ext of ['points.npy', 'jsonl', ...(part.meta.rgb ? ['rgb.npy'] : [])]) {
-      const kept = join(part.folder, `${first}.${ext}`)
-      if (!existsSync(kept)) throw new Error(`${name} has no ${first}.${ext} to compare against`)
-      const [a, b] = await Promise.all([hashStream(kept), hashStream(join(out, `${first}.${ext}`))])
-      if (a !== b) throw new Error(`the rebuilt ${name}/${first}.${ext} differs from the one on disk, so the shards are not reproducible; nothing was deleted`)
-      files[`${first}.${ext}`] = a
-    }
-    checked.push({ part: name, files })
-    rmSync(out, { recursive: true, force: true })
-    console.log(`  ${name}: ${first} rebuilt byte for byte`)
-  }
   rmSync(work, { recursive: true, force: true })
+  try {
+    await mkdir(work, { recursive: true })
+    const script = join(work, 'procedural-export.mjs')
+    const { build } = await import('esbuild')
+    await build({ ...BUILD, outfile: script })
+    if (sha256File(script) !== bundle) {
+      throw new Error(`the export script built from this checkout differs from the build that wrote the shards: git checkout ${commit} and run this again`)
+    }
+    console.log(`  the export builds to the recorded bundle, three ${three}`)
+
+    // 5. regenerate the first shard of the parts being checked and compare
+    for (const name of verify) {
+      const part = parts.find((p) => p.name === name)
+      if (!part) throw new Error(`--verify names ${name}, which is not a part under --root`)
+      const out = join(work, name)
+      // --allow-dirty because the hash above already proved this is the code that wrote the shards,
+      // whatever else in the checkout has changed since; the rebuilt shard is scratch
+      const run = ['--max-old-space-size=4096', script, ...rebuildArgs(part.meta, out, true), '--allow-dirty']
+      const r = spawnSync(process.execPath, run, { encoding: 'utf8' })
+      if (r.status !== 0) throw new Error(`rebuilding ${name} failed: ${(r.stderr || r.stdout).trim()}`)
+      const first = shardName(0)
+      const files: Record<string, string> = {}
+      for (const ext of ['points.npy', 'jsonl', ...(part.meta.rgb ? ['rgb.npy'] : [])]) {
+        const kept = join(part.folder, `${first}.${ext}`)
+        if (!existsSync(kept)) throw new Error(`${name} has no ${first}.${ext} to compare against`)
+        const [a, b] = await Promise.all([hashStream(kept), hashStream(join(out, `${first}.${ext}`))])
+        if (a !== b) throw new Error(`the rebuilt ${name}/${first}.${ext} differs from the one on disk, so the shards are not reproducible; nothing was deleted`)
+        files[`${first}.${ext}`] = a
+      }
+      checked.push({ part: name, files })
+      console.log(`  ${name}: ${first} rebuilt byte for byte`)
+    }
+  } finally {
+    rmSync(work, { recursive: true, force: true })
+  }
 
   // 6. record, then delete
   const plan = parts.map((p) => ({ part: p, names: deletable(readdirSync(p.folder)) }))
@@ -209,6 +208,7 @@ const main = async () => {
     root,
     commit,
     bundle,
+    three,
     node: process.version,
     bytes,
     rebuild: {

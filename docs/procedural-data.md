@@ -74,11 +74,11 @@ also refused from another commit, another build of the script, or another `--no-
 
 The shards are generated from seeds, so they do not have to be kept. Two things make that safe:
 
-- **The export records the code that ran.** `meta.json` holds the commit and the sha256 of the bundled
-  script, and the export refuses to start when `src/`, `scripts/`, `package.json` or
-  `package-lock.json` has uncommitted changes, because shards from that state could not be rebuilt.
-  esbuild writes the bundle byte for byte the same from the same source, whatever the output path,
-  so the hash identifies the build.
+- **The export records the code that ran.** `meta.json` holds the commit, the sha256 of the bundled
+  script and the version of three (which the bundle leaves external), and the export refuses to
+  start when `src/`, `scripts/`, `package.json` or `package-lock.json` has uncommitted changes,
+  because shards from that state could not be rebuilt. esbuild writes the bundle byte for byte the
+  same from the same source, whatever the output path, so the hash identifies the generating code.
 - **`scripts/procedural-clean.ts` proves a rebuild before it deletes.**
 
 ```sh
@@ -86,8 +86,10 @@ node scripts/procedural-clean.ts --root .cache/procedural --runs ml/runs/R0a,ml/
 node scripts/procedural-clean.ts --root .cache/procedural --runs ml/runs/R0a,ml/runs/R0b
 ```
 
-It refuses unless every listed run's `train.json` says `finished`, HEAD is the recorded commit with
-no uncommitted source, and the script it rebuilds hashes to the recorded build. It then regenerates
+It refuses unless every listed run's `train.json` says `finished`, the installed three is the
+recorded version, and the export built from the current checkout hashes to the recorded build. The
+checkout does not have to be the recorded commit: a later commit that left the generating code alone
+builds the same bundle, and one that changed it is refused with the commit to check out. It then regenerates
 the first shard of the first and last part (`--verify` picks others) and compares the points, the
 rows and any colour byte for byte. Only then does it hash every point and colour array, write
 `deleted.json` under `--root` with those hashes and the command that rebuilds each part, and delete
