@@ -18,7 +18,8 @@
     "index:objaverse:fetch": "node scripts/objaverse-index.ts --fetch --data .cache/objaverse",
     "index:objaverse:report": "node --max-old-space-size=2048 scripts/objaverse-index.ts --data .cache/objaverse --report",
     "export:objaverse": "esbuild scripts/objaverse-export.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=.cache/objaverse-export.mjs && node --max-old-space-size=4096 .cache/objaverse-export.mjs",
-    "score": "node bench/score.ts"
+    "score": "node bench/score.ts",
+    "export:procedural": "esbuild scripts/procedural-export.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=.cache/procedural-export.mjs && node --max-old-space-size=4096 .cache/procedural-export.mjs"
   },
   "dependencies": {
     "@react-three/fiber": "^9.1.2",
