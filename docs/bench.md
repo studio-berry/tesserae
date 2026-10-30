@@ -96,6 +96,44 @@ because they are the record.
 | `--reuse` | off | do not start a dev server; expect one at `--port` |
 | `--no-judge` | off | take the screenshots, judge nothing |
 
+## Scoring without the benchmark
+
+A training run has to score its own samples thousands of times, and the benchmark's shape is wrong for
+that. It starts a browser per worker and pays a full app load per prompt. `bench/score.ts` is the
+training path: one tab, warmed once, one navigation per cloud, and the same `capture` and `judge` a
+benchmark row goes through, so a score taken here and a score taken by `npm run bench` mean the same
+thing.
+
+    npm run score -- --samples bench/samples --out bench/scores/base-9k
+
+It writes `scores.jsonl`, one row per cloud, and `score.json` with the read rate, the thumbnail rate,
+how many drew, the wall-clock p50 and the milliseconds an image, which is the number that decides
+whether a training loop can afford to score every checkpoint. `--limit` smokes it, `--no-judge` draws
+without spending a judge call, `--prompts` takes a different prompt file, and `--ext traj` scores a
+folder of walks instead of clouds.
+
+A prompt with no cloud beside it is named on screen and counted in `score.json`'s `missing`. A rate
+over the clouds that happened to exist is a different number from the one the caller asked for, so it
+is reported rather than quietly dropped.
+
+## The held-out set
+
+Two hundred prompts nobody tunes against, kept in `bench/held-out.jsonl.enc`. They are sealed with
+AES-256-GCM so that a clone carries the test set without carrying the prompts, and so a wrong key
+fails loudly instead of returning plausible rubbish that scores as a bad model.
+
+    node scripts/held-out.ts --check                       # disjoint from the public set?
+    node scripts/held-out.ts --decrypt --out .cache/held-out.jsonl
+    node scripts/held-out.ts --encrypt --in .cache/held-out.jsonl --out bench/held-out.jsonl.enc
+
+The key is `BENCH_HELDOUT_KEY`, in the ignored `.env` locally and in the CI secret. `--check` folds
+articles, case and punctuation before comparing, because "a teapot" and "Teapot" are the same object
+and would be the same leak.
+
+A gate that matters quotes its held-out number beside its public one. The two are not
+interchangeable, and the 200 public prompts are small enough that a three-point difference on them is
+noise.
+
 ## Traps
 
 - **A shared browser is a background tab.** Only the focused tab asks for frames, and this app only

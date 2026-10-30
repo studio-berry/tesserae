@@ -12,6 +12,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { Tab, alive, launchChrome } from './lib/cdp.ts'
+import { capture, warm } from './lib/capture.ts'
 import { arg, flag, num } from './lib/args.ts'
 import { judge, judgeFrom, readEnv, type Judge } from './judge.ts'
 import { markdown, type Meta, type Result } from './report.ts'
@@ -21,7 +22,6 @@ const ROOT = process.cwd()
 const SOURCES = arg('sources', 'prompt').split(',').map((s) => s.trim()).filter(Boolean)
 const LIMIT = Math.round(num('limit', 0))
 const CONCURRENCY = Math.round(num('concurrency', 3))
-const THUMB = { w: 256, h: 160 }
 const DENSITY = Math.round(num('density', 12000))
 const THEME = arg('theme', 'dark')
 const PORT = Math.round(num('port', 5181))
@@ -115,43 +115,35 @@ async function main() {
       }
       try {
         tab = await Tab.open(CHROME_PORT + worker)
-        await tab.installClock()
         // a fresh tab per prompt keeps one prompt's work off another's timing, but the first paint
         // pays for the atlas and the font, so every tab warms up on the plain app first
-        await tab.navigate(`http://127.0.0.1:${PORT}/?theme=${THEME}&n=${DENSITY}`)
-        await tab.settled(60_000)
-        const navAt = Date.now()
-        await tab.navigate(urlFor(source, p))
-        const settled = await tab.settled(source === 'chat' ? 120_000 : 60_000)
-        // the page's own clock is the sharper measurement, but it restarts with the document: a source
-        // that takes fifteen seconds to answer reports a few hundred milliseconds when the tab is
-        // replaced under it. The runner's wall clock cannot be fooled that way, so both are recorded.
-        const navMs = Date.now() - navAt
-        const clock = await tab.clock()
+        await warm(tab, `http://127.0.0.1:${PORT}/?theme=${THEME}&n=${DENSITY}`)
+        const shot = await capture(tab, urlFor(source, p), { settleMs: source === 'chat' ? 120_000 : 60_000 })
         const shotName = `${source}-${p.id}.png`, thumbName = `${source}-${p.id}.thumb.png`
         let reads: boolean | null = null, readsThumb: boolean | null = null, reason = ''
-        if (settled.done) {
-          const png = await tab.screenshot()
-          const thumb = await tab.downscale(png, THUMB.w, THUMB.h)
-          writeFileSync(`${OUT}/shots/${run}/${shotName}`, png)
-          writeFileSync(`${OUT}/shots/${run}/${thumbName}`, thumb)
+        if (shot.png && shot.thumb) {
+          writeFileSync(`${OUT}/shots/${run}/${shotName}`, shot.png)
+          writeFileSync(`${OUT}/shots/${run}/${thumbName}`, shot.thumb)
           if (judgeCfg) {
-            const verdict = await judge(judgeCfg, png, thumb, p.prompt)
+            const verdict = await judge(judgeCfg, shot.png, shot.thumb, p.prompt)
             reads = verdict.reads; readsThumb = verdict.readsThumb; reason = verdict.reason
           }
         }
         const row: Result = {
           id: p.id, prompt: p.prompt, category: p.category, seed: p.seed, source,
-          drawn: settled.done, error: settled.error ?? '', title: settled.title ?? '',
-          firstGlyphMs: clock.firstGlyphMs, navMs, reads, readsThumb, reason,
-          shot: settled.done ? `shots/${run}/${shotName}` : '',
-          thumb: settled.done ? `shots/${run}/${thumbName}` : '',
+          drawn: shot.done, error: shot.error, title: shot.title,
+          // the page's own clock is the sharper measurement, but it restarts with the document: a
+          // source that takes fifteen seconds to answer reports a few hundred milliseconds when the
+          // tab is replaced under it, so the runner's wall clock is recorded beside it
+          firstGlyphMs: shot.firstGlyphMs, navMs: shot.navMs, reads, readsThumb, reason,
+          shot: shot.png ? `shots/${run}/${shotName}` : '',
+          thumb: shot.thumb ? `shots/${run}/${thumbName}` : '',
         }
         const n = ++done
         // appended as it lands: a run of 200 prompts is an hour of work, and a crash at prompt 190
         // must not lose the 189 that were measured
         appendFileSync(`${OUT}/results-${run}.jsonl`, JSON.stringify(row) + '\n')
-        console.log(`${String(n).padStart(3)} ${source} ${p.id} ${settled.done ? (row.firstGlyphMs ?? '?') + 'ms' : 'FAILED'} ${reads === null ? '' : reads ? 'READ' : 'not'} ${p.prompt}`)
+        console.log(`${String(n).padStart(3)} ${source} ${p.id} ${shot.done ? (row.firstGlyphMs ?? '?') + 'ms' : 'FAILED'} ${reads === null ? '' : reads ? 'READ' : 'not'} ${p.prompt}`)
         return row
       } catch (err) {
         // one prompt that will not load is a failed row, not the end of an hour's run
