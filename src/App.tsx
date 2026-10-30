@@ -64,6 +64,7 @@ export default function App() {
   const [tune, setTune] = useState(false)
   const [gen, setGen] = useState(0) // bumped when the graphics context comes back, to rebuild everything
   const [exported, setExported] = useState<ExportItem | null>(null)
+  const [trajectory, setTrajectory] = useState<{ steps: Float32Array[]; ms: number } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const touched = useRef(false) // the density slider has been moved by hand
   const shownKey = useRef<string | null>(null) // the source and seed on screen, so a refine stays quiet
@@ -117,6 +118,41 @@ export default function App() {
     return () => clearTimeout(t)
   }, [prompt, source]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A cloud served by URL, for the benchmark and for a baseline's own samples: `?ply=/bench/samples/x.ply`
+  // goes through the same file source a dropped scan does. It is a development path, not a share
+  // link, so it never appears in the URL the app writes back.
+  useEffect(() => {
+    const ply = new URLSearchParams(location.search).get('ply')
+    if (!ply) return
+    let live = true
+    setBusy(true)
+    import('./objects/load').then(({ loadPlyUrl }) => loadPlyUrl(ply))
+      .then((l) => { if (live) { setSource({ kind: 'file', ...l }); setStatus('') } })
+      .catch((err: Error) => { if (live) { setError(err.message); setBusy(false) } })
+    return () => { live = false }
+  }, [])
+
+  // A sampling trajectory, replayed: `?traj=/bench/samples/t001.traj&ms=60`. The object is the last
+  // frame, so the picture is the same as the model's cloud; the frames before it are the assembly.
+  useEffect(() => {
+    const query = new URLSearchParams(location.search)
+    const url = query.get('traj')
+    if (!url) return
+    let live = true
+    setBusy(true)
+    import('./objects/trajectory').then(({ fetchTraj, normalizeSteps }) => fetchTraj(url).then((t) => {
+      normalizeSteps(t.steps)
+      return { steps: t.steps, ms: Math.max(16, Number(query.get('ms')) || 70) }
+    }))
+      .then((t) => {
+        if (!live) return
+        setTrajectory(t)
+        setSource({ kind: 'trajectory', steps: t.steps, name: decodeURIComponent(url.split('/').pop() || 'trajectory') })
+      })
+      .catch((err: Error) => { if (live) { setError(err.message); setBusy(false) } })
+    return () => { live = false }
+  }, [])
+
   useEffect(() => {
     let live = true
     const id = sourceKey(source, seed)
@@ -135,6 +171,13 @@ export default function App() {
     const next = writeUrl({ source, text, prompt, chat, seed, density, mode, theme, palette, charset }, defaultDensity(innerWidth, innerHeight))
     try { history.replaceState(null, '', `${location.pathname}${next}`) } catch { /* sandboxed: sharing via URL just won't work */ }
   }, [source, text, prompt, chat, seed, density, mode, theme, palette, charset])
+
+  // once the trajectory's final frame is on the stage, replay the walk that made it. The stage's own
+  // effect has committed the shape by now: a child's effects run before its parent's.
+  useEffect(() => {
+    if (!shape || shape.kind !== 'trajectory' || !trajectory) return
+    stageApi.stream({ steps: trajectory.steps, ms: trajectory.ms, seed: 1 })
+  }, [shape, trajectory])
 
   // the canvas dims for one transition, the mode swaps while it is down, and it comes back up: that
   // reads as a crossfade without rendering both modes at once

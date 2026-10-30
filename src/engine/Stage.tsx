@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { GLYPH_FILL, type Shape } from '../objects'
 import { DUST, Mode, N, R, THEMES, TINTS, Theme, TintId, clamp01, mulberry32, paletteInk, smooth } from './core'
 import { Atlas } from './glyphs'
-import { infoStore, stageApi } from './info'
+import { infoStore, stageApi, type Stream } from './info'
 import { occluderFrag, occluderVert, pointFrag, pointVert, shadowFrag, shadowVert } from './shaders'
 import { snapshotText } from './snapshot'
 
@@ -437,9 +437,70 @@ export function Stage({ shape, mode, theme, palette, atlas, spin, orient, paused
     }
   }, [gl, camera, mat, reduce, invalidate, onZoom]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // the stream in flight: a trajectory's frames, one commit each, at the rate they arrive
+  const running = useRef<{ steps: Float32Array[]; ms: number; i: number; at: number; points: number; jitter: Float32Array; count: number } | null>(null)
+
+  // One frame of a trajectory as a target for the pool. Every pool dot carries a fixed offset from
+  // its source point, so dot i is the same sample in every frame and the springs between commits
+  // carry the motion with no correspondence step.
+  const streamTarget = (run: { points: number; jitter: Float32Array; count: number }, frame: Float32Array): Target | null => {
+    const base = E.current.cur
+    if (!base) return null
+    const t: Target = {
+      shape: base.shape,
+      pos: base.pos.slice(), nrm: base.nrm.slice(),
+      col: base.col, size: base.size, alpha: base.alpha, order: base.order,
+    }
+    for (let i = 0; i < run.count; i++) {
+      const src = (i % run.points) * 6
+      t.pos[i * 3] = frame[src] + run.jitter[i * 3]
+      t.pos[i * 3 + 1] = frame[src + 1] + run.jitter[i * 3 + 1]
+      t.pos[i * 3 + 2] = frame[src + 2] + run.jitter[i * 3 + 2]
+      const l = Math.hypot(frame[src + 3], frame[src + 4], frame[src + 5]) || 1
+      t.nrm[i * 3] = frame[src + 3] / l
+      t.nrm[i * 3 + 1] = frame[src + 4] / l
+      t.nrm[i * 3 + 2] = frame[src + 5] / l
+      t.alpha[i] = 0.95
+    }
+    return t
+  }
+
+  const stepStream = (run: { steps: Float32Array[]; ms: number; i: number; at: number; points: number; jitter: Float32Array; count: number }) => {
+    const frame = run.steps[run.i]
+    if (!frame) { running.current = null; return }
+    const t = streamTarget(run, frame)
+    if (t) commit(t, 0)
+    run.i += 1
+    run.at = E.current.time
+    if (run.i >= run.steps.length) running.current = null
+  }
+
   // ---------------------------------------------------------------- imperative hooks for the UI
   useEffect(() => {
     stageApi.burst = () => { const e = E.current; if (e.cur?.shape) enter(e.cur.shape, build(e.cur.shape), true) }
+    // The trajectory API. A source hands the stage a whole sampling walk and the stage springs
+    // through it: the assembly animation is the generation, not a flourish laid over it.
+    stageApi.stream = (s: Stream | null) => {
+      const e = E.current
+      running.current = null
+      if (!s || !s.steps.length || !e.cur?.shape) return
+      const points = s.steps[0].length / 6
+      const count = Math.min(e.cur.shape.count, N)
+      const rng = mulberry32(s.seed)
+      const jitter = new Float32Array(count * 3)
+      const spread = (e.cur.shape.glyphSize ?? 0.05) * 0.35
+      for (let i = 0; i < count; i++) {
+        jitter[i * 3] = (rng() - 0.5) * spread
+        jitter[i * 3 + 1] = (rng() - 0.5) * spread
+        jitter[i * 3 + 2] = (rng() - 0.5) * spread
+      }
+      const run = { steps: s.steps, ms: Math.max(16, s.ms), i: 0, at: e.time, points, jitter, count }
+      e.phase = 'assemble'; e.start = e.time; e.len = (s.steps.length * run.ms) / 1000 + 1.2
+      if (occ.current) occ.current.geometry = new THREE.BufferGeometry()
+      running.current = run
+      stepStream(run)
+      invalidate()
+    }
     stageApi.rotate = (dx, dy) => {
       const e = E.current
       const len = Math.hypot(dx, dy)
@@ -470,6 +531,10 @@ export function Stage({ shape, mode, theme, palette, atlas, spin, orient, paused
     e.time += dt
     const now = e.time, cur = e.cur
     if (!cur) return
+    // a trajectory commits its next frame on its own clock, not on the frame rate: the walk should
+    // take the time the model took, whatever the display is doing
+    const stream = running.current
+    if (stream && now - stream.at >= stream.ms / 1000) stepStream(stream)
     const shp = cur.shape
     const tPh = now - e.start
     if (e.phase !== 'idle' && tPh > e.len) e.phase = 'idle'

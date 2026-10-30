@@ -142,6 +142,52 @@ pitch the tightest library surface's samples sit at, which is where the atlas's 
 footprint leaves no gap. `zoomCount(base, zoom, cap)` is the count a zoom level asks for,
 `base * zoom^2` in quarter-density steps, never below the base and never above the pool `N`.
 
+## Trajectories
+
+A source can hand the stage a whole sampling walk, and the stage springs through it at the rate the
+frames arrive. Point `i` stays point `i` across frames, so the springs carry the motion and there is
+no correspondence step. The assembly animation is the generation, not a flourish over it.
+
+```ts
+// src/engine/info.ts, on the stage's imperative api
+type Stream = {
+  steps: Float32Array[]  // each [points * 6]: x, y, z, then the unit normal
+  ms: number             // how long each frame holds before the next commit
+  seed: number           // fixes every pool dot's offset, so one file draws one dust
+}
+stageApi.stream(s: Stream | null): void
+```
+
+```ts
+// src/objects/index.ts
+| { kind: 'trajectory'; steps: Float32Array[]; name: string }
+```
+
+The stage maps the walk's points onto the fixed pool by repeating them in order, each pool dot
+carrying a jitter drawn once from `seed`. A jitter re-rolled per frame would shake every dot every
+frame. A stream commits with zero stagger: every dot moves on the same frame, and the spring is what
+spreads the motion.
+
+A trajectory's object is its **last** frame, through the same `Shape` contract as everything else, so
+the still picture and the end of the animation are the same picture. The frames are normalized as a
+set: the last frame decides the centre and the scale for all of them, because a per-frame scale would
+make the object breathe while it assembled.
+
+The file `ml/cloudgen/traj.py` writes and `src/objects/trajectory.ts` reads:
+
+| bytes | holds |
+|---|---|
+| 0–3 | magic `GATJ` |
+| 4 | version, uint32 little endian, `1` |
+| 8 | frames, uint32: steps + 1, the noise included |
+| 12 | points, uint32: 4096 |
+| 16 | channels, uint32: 6 |
+| 20– | float32 frames, `[frames][points][channels]` |
+
+The reader checks the magic, the version, the channel count and that the header's counts and the
+file's length agree. A reader that guesses at a layout draws the wrong thing and looks like a model
+that failed.
+
 ## Colour
 
 Five tint tokens carry a paper and an ink value, and a palette is a name over one of them.

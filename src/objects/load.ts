@@ -73,3 +73,17 @@ export const loadFiles = async (files: File[]): Promise<Loaded> => {
     setTimeout(() => blobs.forEach((u) => URL.revokeObjectURL(u)), 10000)
   }
 }
+
+// A `.ply` fetched by URL, for the benchmark and for `?ply=`. The parse and the Points branch are
+// the ones a dropped scan takes, so a cloud a model sampled is drawn through the path a person uses
+// rather than through a second renderer that agrees with it by accident.
+export const loadPlyUrl = async (url: string): Promise<Loaded> => {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`could not fetch ${url}`)
+  const buf = await res.arrayBuffer()
+  const g = new PLYLoader().parse(buf)
+  const object = g.index
+    ? new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: !!g.attributes.color }))
+    : new THREE.Points(g, new THREE.PointsMaterial())
+  return { object, name: decodeURIComponent(url.split('/').pop() || 'cloud.ply'), bytes: buf.byteLength }
+}

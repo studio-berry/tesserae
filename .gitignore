@@ -26,3 +26,4 @@ bench/results/**/shots/
 ml/.venv/
 ml/**/__pycache__/
 ml/runs/
+ml/runs*.log
