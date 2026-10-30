@@ -27,7 +27,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { mulberry32 } from '../src/engine/core.ts'
 import { passesContent } from '../src/objects/credit.ts'
 import { glbUrls, sketchfabUrl, type Index, type IndexRow } from '../src/objects/objaverse-index.ts'
-import { normalize, sampleSoup } from '../src/objects/sample.ts'
+import { normalize, sampleSoup } from '../src/core/sample.ts'
 import { soupFrom } from '../src/objects/soup.ts'
 import { countTriangles, fetchModel, MAX_BYTES, MAX_TRIS } from '../src/objects/url-loader.ts'
 import { npy, srgbByte, stripTextures, toHalf } from './objaverse-export-format.ts'

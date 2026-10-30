@@ -12,7 +12,7 @@
 // The counts are checked rather than trusted: a reader that guesses at a layout draws the wrong
 // thing and looks like a model that failed.
 
-import { Cloud, Samples } from './sample'
+import { Cloud, Samples } from '../core/sample'
 import { R, mulberry32 } from '../engine/core'
 
 export const MAGIC = 'GATJ'

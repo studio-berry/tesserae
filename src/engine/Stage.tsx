@@ -6,7 +6,7 @@ import { DUST, Mode, N, R, THEMES, TINTS, Theme, TintId, clamp01, mulberry32, pa
 import { Atlas } from './glyphs'
 import { infoStore, stageApi, type Stream } from './info'
 import { occluderFrag, occluderVert, pointFrag, pointVert, shadowFrag, shadowVert } from './shaders'
-import { snapshotText } from './snapshot'
+import { snapshotText } from '../core/snapshot'
 
 type Props = {
   shape: Shape | null

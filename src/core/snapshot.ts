@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { clamp01, smooth } from './core'
+import { shade } from './lighting'
 
 // Renders the current view as plain text: project the visible dots, crop to the object, splat
 // them into a fine depth buffer, then give each character cell the glyph its average ink calls
@@ -24,7 +24,7 @@ export type SnapshotInput = {
 export function snapshotText(p: SnapshotInput) {
   const cols = Math.max(8, p.cols)
   const pos = p.pos, nrm = p.nrm
-  const v = new THREE.Vector3(), n = new THREE.Vector3(), h = new THREE.Vector3(), view = new THREE.Vector3()
+  const v = new THREE.Vector3(), n = new THREE.Vector3(), view = new THREE.Vector3()
   const dots: { x: number; y: number; z: number; ink: number; r: number }[] = []
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
   // the same focal length the shader uses, so a dot covers the cell it covers on screen
@@ -37,12 +37,9 @@ export function snapshotText(p: SnapshotInput) {
     if (z <= 0.1) continue
     n.fromArray(nrm, i3)
     view.copy(v).negate().normalize()
-    let facing = n.dot(view)
-    if (p.twoSided && facing < 0) { n.negate(); facing = -facing }
-    if (!p.twoSided && facing < -0.05) continue
-    const lam = Math.max(0, n.dot(p.light)), spec = Math.max(0, n.dot(h.copy(p.light).add(view).normalize())) ** 24
-    const graze = 0.5 + 0.5 * smooth(facing / 0.45)
-    const ink = clamp01(p.alpha[i] * (0.16 + 0.84 * lam + 0.55 * spec + 0.06 * (1 - clamp01(facing)) ** 3) * graze * 0.72)
+    const shaded = shade(n, p.light, view, p.alpha[i], p.twoSided)
+    if (!shaded) continue
+    const ink = shaded.ink
     v.applyMatrix4(p.projection)
     const x = (v.x * 0.5 + 0.5) * p.width, y = (0.5 - v.y * 0.5) * p.height
     const r = (p.size[i] * p.sizeMul * p.modelScale * focal) / z / 2

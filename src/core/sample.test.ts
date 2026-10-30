@@ -2,8 +2,8 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { R, mulberry32 } from '../engine/core'
 import { dart, mortonOrder, normalize, planeNormal, sampleCloud, sampleSoup } from './sample'
-import { soupFrom } from './soup'
-import { wrap } from './text'
+import { soupFrom } from '../objects/soup'
+import { wrap } from '../objects/text'
 
 const sphereSoup = () => {
   const { soup } = soupFrom(new THREE.Mesh(new THREE.SphereGeometry(3, 64, 32), new THREE.MeshBasicMaterial()))
