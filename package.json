@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "test": "vitest run",
+    "bench": "node bench/run.ts",
+    "bench:agree": "node bench/agree.ts",
     "index:objaverse": "node --max-old-space-size=2048 scripts/objaverse-index.ts --data .cache/objaverse --out public/objaverse/index.json.gz",
     "index:objaverse:fetch": "node scripts/objaverse-index.ts --fetch --data .cache/objaverse",
     "index:objaverse:report": "node --max-old-space-size=2048 scripts/objaverse-index.ts --data .cache/objaverse --report",

@@ -18,3 +18,11 @@ __pycache__/
 # the scene writer's credential, and anything else local to one machine
 .env
 .env.local
+
+# the benchmark's pictures: 200 renders a run is 80 MB, and the report is what a reader needs
+bench/results/**/shots/
+
+# a python environment for training is a local install, not source
+ml/.venv/
+ml/**/__pycache__/
+ml/runs/
