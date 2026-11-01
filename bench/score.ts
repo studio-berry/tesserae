@@ -63,7 +63,7 @@ type Scorer = {
 
 // One browser, one tab, warmed once. The tab is reused across clouds, which is the whole point: the
 // app boots once and every later cloud costs a navigation and a render.
-export async function openScorer(options: { port: number; cdp: number; profile: string; density: number; theme: string; judge: Judge | null }): Promise<Scorer> {
+export async function openScorer(options: { port: number; cdp: number; profile: string; density: number; theme: string; judge: Judge | null; shots?: string }): Promise<Scorer> {
   const server = flag('reuse') ? null : spawn('npx', ['vite', '--host', '127.0.0.1', '--port', String(options.port), '--strictPort'], {
     cwd: ROOT, stdio: 'ignore', shell: process.platform === 'win32',
   })
@@ -77,6 +77,7 @@ export async function openScorer(options: { port: number; cdp: number; profile: 
     async score(one) {
       const url = `http://127.0.0.1:${options.port}/?theme=${options.theme}&n=${options.density}&ply=${one.url}`
       const shot = await capture(tab, url)
+      if (options.shots && shot.png) writeFileSync(`${options.shots}/${one.id}.png`, shot.png)
       const row: Result = {
         id: one.id, prompt: one.prompt, category: '', seed: 0, source: 'ply',
         drawn: shot.done, error: shot.error, title: shot.title,
@@ -117,10 +118,13 @@ async function main() {
   if (missing.length) console.log(`${missing.length} prompts have no cloud in ${samples}: ${missing.slice(0, 6).join(', ')}${missing.length > 6 ? ' …' : ''}`)
 
   mkdirSync(out, { recursive: true })
+  // --shots <dir> keeps each cloud's picture, for a judge that is not called from here
+  const shots = arg('shots', '')
+  if (shots) mkdirSync(shots, { recursive: true })
   const scorer = await openScorer({
     port: Math.round(num('port', 5181)), cdp: Math.round(num('cdp', 9333)),
     profile: `${process.env.TEMPDIR ?? process.env.LOCALAPPDATA ?? '.'}/Temp/gen-ascii-score-profile`,
-    density: Math.round(num('density', 12000)), theme: arg('theme', 'dark'), judge: judgeCfg,
+    density: Math.round(num('density', 12000)), theme: arg('theme', 'dark'), judge: judgeCfg, shots: shots || undefined,
   })
 
   const started = Date.now()
