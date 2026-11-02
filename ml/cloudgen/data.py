@@ -128,6 +128,21 @@ def turn_about_y(pos: np.ndarray, nrm: np.ndarray, angle: float) -> None:
         xyz[..., 2] = z * c - x * s
 
 
+def morton_order(pos: np.ndarray, bits: int = 10) -> np.ndarray:
+    """Indices that sort points along a Z-order curve through the unit cube around the origin.
+
+    Points are a set, so their order is free to choose. Sorting them the same way for every shape
+    makes token n land in roughly the same region of every shape, which is what lets a positional
+    embedding mean something.
+    """
+    q = np.clip((pos * 0.5 + 0.5) * (2**bits - 1), 0, 2**bits - 1).astype(np.int64)
+    code = np.zeros(len(pos), dtype=np.int64)
+    for b in range(bits):
+        for axis in range(3):
+            code |= ((q[:, axis] >> b) & 1) << (3 * b + axis)
+    return np.argsort(code, kind="stable")
+
+
 @dataclass
 class Group:
     """One `--data` argument: the folders it named, their shards, and its share of each batch."""
@@ -221,7 +236,11 @@ class CloudDataset:
         turn: bool = True,
         groups: list[int] | None = None,
         weights: list[float] | None = None,
+        order: str = "",
+        points: int = 0,
     ):
+        self.order = order
+        self.points = points
         self.shards = shards
         self.seed = seed
         self.turn = turn
@@ -267,7 +286,8 @@ class CloudDataset:
 
     def batch(self, size: int) -> tuple[np.ndarray, np.ndarray, list[str]]:
         take = self._take(size)
-        out = np.empty((size, self.shards[0].points.shape[1], 6), dtype=np.float32)
+        width = self.points or self.shards[0].points.shape[1]
+        out = np.empty((size, width, 6), dtype=np.float32)
         captions: list[str] = [""] * size
         # gathered a shard at a time: one fancy-index into the mmap per shard instead of one per row,
         # which is most of what the step spent its time on
@@ -281,6 +301,10 @@ class CloudDataset:
             for (j, i), cloud in zip(pairs, clouds):
                 if self.turn:
                     turn_about_y(cloud[:, :3], cloud[:, 3:], float(self.rng.uniform(0, 2 * np.pi)))
+                if self.points and self.points < cloud.shape[0]:
+                    cloud = cloud[self.rng.choice(cloud.shape[0], self.points, replace=False)]
+                if self.order == "morton":
+                    cloud = cloud[morton_order(cloud[:, :3])]
                 out[j] = cloud
                 captions[j] = shard.captions[i]
         return out, np.asarray(take, dtype=np.int64), captions

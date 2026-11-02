@@ -29,6 +29,23 @@ def timestep_embedding(t: torch.Tensor, dim: int) -> torch.Tensor:
     return torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
 
 
+def kd_sort(x: torch.Tensor) -> torch.Tensor:
+    """Order each cloud's points by recursive median splits on x, y, z, x, ... ([B, N, C], xyz first).
+
+    Two clouds sorted this way pair their i-th points by place: the points in the same cell of the
+    same split go together. Random pairing makes the straight line from a noise point to a data
+    point unpredictable from where the noise point is; this pairing makes it a function of place.
+    """
+    b, n, c = x.shape
+    groups, axis = 1, 0
+    while n % (2 * groups) == 0 and n // groups > 1:
+        x = x.reshape(b * groups, n // groups, c)
+        x = torch.gather(x, 1, x[..., axis].argsort(dim=1)[..., None].expand(-1, -1, c))
+        groups *= 2
+        axis = (axis + 1) % 3
+    return x.reshape(b, n, c)
+
+
 def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
 
@@ -71,6 +88,9 @@ class PointDiT(nn.Module):
         heads: int = 6,
         text_dim: int = 384,
         cross: bool = True,
+        pos: bool = False,
+        tscale: float = 1.0,
+        kd: bool = False,
     ):
         super().__init__()
         if points % patch:
@@ -79,7 +99,10 @@ class PointDiT(nn.Module):
         self.patch = patch
         self.tokens = points // patch
         self.dim = dim
+        self.tscale = tscale
+        self.kd = kd
         self.inp = nn.Linear(patch * CHANNELS, dim)
+        self.pos = nn.Parameter(torch.randn(1, self.tokens, dim) * 0.02) if pos else None
         self.out = nn.Linear(dim, patch * CHANNELS)
         self.time = nn.Sequential(nn.Linear(128, dim), nn.SiLU(), nn.Linear(dim, dim))
         self.text = nn.Sequential(nn.Linear(text_dim, dim), nn.SiLU(), nn.Linear(dim, dim))
@@ -92,7 +115,9 @@ class PointDiT(nn.Module):
         b = x.shape[0]
         tokens = x.reshape(b, self.tokens, self.patch * CHANNELS)
         h = self.inp(tokens)
-        cond = self.time(timestep_embedding(t, 128)) + self.text(text)
+        if self.pos is not None:
+            h = h + self.pos
+        cond = self.time(timestep_embedding(t * self.tscale, 128)) + self.text(text)
         memory = self.memory(text).unsqueeze(1)
         for block in self.blocks:
             h = block(h, cond, memory)
@@ -116,6 +141,8 @@ def sample(model: PointDiT, text: torch.Tensor, steps: int = 32, seed: int | Non
     if seed is not None and start is None:
         gen = torch.Generator(device=device).manual_seed(seed)
         x = torch.randn(b, model.points, CHANNELS, device=device, generator=gen)
+    if getattr(model, "kd", False):
+        x = kd_sort(x)
     frames = [x.clone()]
     dt = 1.0 / steps
     for i in range(steps):
@@ -128,6 +155,8 @@ def sample(model: PointDiT, text: torch.Tensor, steps: int = 32, seed: int | Non
 def flow_loss(model: PointDiT, cloud: torch.Tensor, text: torch.Tensor, noise: torch.Tensor | None = None) -> torch.Tensor:
     b = cloud.shape[0]
     x0 = torch.randn_like(cloud) if noise is None else noise
+    if getattr(model, "kd", False):
+        x0, cloud = kd_sort(x0), kd_sort(cloud)
     t = torch.rand(b, device=cloud.device)
     xt = x0 * (1 - t[:, None, None]) + cloud * t[:, None, None]
     target = cloud - x0

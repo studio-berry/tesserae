@@ -63,11 +63,17 @@ def main() -> None:
     ap.add_argument("--patch", type=int, default=16)
     ap.add_argument("--points", type=int, default=4096)
     ap.add_argument("--cond", choices=["cross", "ada"], default="cross")
+    ap.add_argument("--tscale", type=float, default=1.0, help="the time is multiplied by this before its sinusoidal embedding")
+    ap.add_argument("--kd", action="store_true", help="pair noise and data points by place, not by index")
+    ap.add_argument("--pos", action="store_true", help="a learned embedding for each token's place")
+    ap.add_argument("--order", choices=["", "morton"], default="", help="sort each cloud's points the same way")
+    ap.add_argument("--drop", type=float, default=0.0, help="chance of blanking a cloud's caption, so the model also learns the unconditioned walk")
     ap.add_argument("--text", default="minilm", help="the frozen text encoder: minilm or hashed")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--log-every", type=int, default=50)
     ap.add_argument("--save-every", type=int, default=2_000)
+    ap.add_argument("--resume", action="store_true", help="carry on from <out>/resume.pt if it exists, else start fresh")
     ap.add_argument("--limit-shards", type=int, default=0)
     ap.add_argument("--turn", action="store_true", default=True)
     ap.add_argument("--no-turn", dest="turn", action="store_false")
@@ -84,7 +90,7 @@ def main() -> None:
     owner = [k for k, g in enumerate(groups) for _ in g.shards]
     for k, g in enumerate(groups):
         g.weight = weights[k] if weights else None
-    dataset = CloudDataset(shards, seed=args.seed, turn=args.turn, groups=owner, weights=weights)
+    dataset = CloudDataset(shards, seed=args.seed, turn=args.turn, groups=owner, weights=weights, order=args.order, points=args.points)
     for g in groups:
         share = f"{g.weight:.0%} of each batch" if g.weight is not None else "drawn by row count"
         notes = sorted({m.screening_note for m in g.manifests})
@@ -93,7 +99,7 @@ def main() -> None:
     encode = encoder(args.text, device="cpu")
     model = PointDiT(
         points=args.points, patch=args.patch, dim=args.dim, depth=args.depth,
-        heads=args.heads, text_dim=encode.dim, cross=args.cond == "cross",
+        heads=args.heads, text_dim=encode.dim, cross=args.cond == "cross", pos=args.pos, tscale=args.tscale, kd=args.kd,
     ).to(args.device)
     print(f"{model.parameters_count() / 1e6:.1f}M parameters, cond {args.cond}, text {encode.name}", flush=True)
 
@@ -114,15 +120,30 @@ def main() -> None:
 
     running = None
     best = float("inf")
+    first = 0
+    resume_path = out / "resume.pt"
+    if args.resume and resume_path.exists():
+        saved = torch.load(resume_path, map_location=args.device)
+        model.load_state_dict(saved["model"])
+        opt.load_state_dict(saved["opt"])
+        first, running, best = saved["step"], saved["running"], saved["best"]
+        # a fresh stream of batches and noise, not a replay of the ones the dead process drew
+        dataset.rng = np.random.default_rng(args.seed + first)
+        torch.manual_seed(args.seed + first)
+        record["resumed_from"] = first
+        (out / "train.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+        print(f"resumed from step {first}", flush=True)
     started = time.time()
     log = (out / "train.log").open("a", encoding="utf-8")
-    for step in range(args.steps):
+    for step in range(first, args.steps):
         lr = cosine_lr(step, args.steps, args.warmup, args.lr)
         for group in opt.param_groups:
             group["lr"] = lr
         cloud, picked, _ = dataset.batch(args.batch)
         x1 = torch.from_numpy(cloud).to(args.device)
         text = torch.from_numpy(table[caption_ids[picked]]).to(args.device)
+        if args.drop:
+            text = text * (torch.rand(text.shape[0], 1, device=text.device) >= args.drop)
         loss = step_loss(model, x1, text, args.precision)
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -141,7 +162,7 @@ def main() -> None:
                 "model": model.state_dict(),
                 "config": {
                     "points": args.points, "patch": args.patch, "dim": args.dim, "depth": args.depth,
-                    "heads": args.heads, "text_dim": encode.dim, "cross": args.cond == "cross",
+                    "heads": args.heads, "text_dim": encode.dim, "cross": args.cond == "cross", "pos": args.pos, "tscale": args.tscale, "kd": args.kd,
                 },
                 "text_encoder": encode.name,
                 "precision": args.precision,
@@ -153,6 +174,9 @@ def main() -> None:
             if running < best:
                 best = running
                 torch.save(ckpt, out / "best.pt")
+            # what a crash needs to carry on: optimiser state too, written whole or not at all
+            torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step + 1, "running": running, "best": best}, out / "resume.tmp")
+            (out / "resume.tmp").replace(resume_path)
             print(f"saved at step {step + 1}", flush=True)
 
     record["finished"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
