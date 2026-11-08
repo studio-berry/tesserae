@@ -1,6 +1,6 @@
 # The prompt benchmark
 
-The instrument every quality claim in the moonshot plan is measured with. Two hundred prompts in ten
+The instrument every quality claim the project publishes is measured with. Two hundred prompts in ten
 categories go through a source, each render is screenshotted and judged by a vision model, and the
 run writes a report that says how often the picture read as its prompt and how long the first glyph
 took to arrive.

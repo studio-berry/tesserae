@@ -36,7 +36,7 @@ The held-out row is the only one worth quoting. Two things follow from it, and n
 - **The aggregate tracks even where the verdicts do not.** On held out images it reports a 30.8 per
   cent read rate where the judge says 30.0, and its individual calls are wrong on one image in four,
   in both directions. So it is a gauge for a training loop watching a trend, and it is not evidence
-  for a gate. Anything that lands in `docs/moonshot.md` as a score still comes from the real judge.
+  for a gate. Any score that goes in the run log still comes from the real judge.
 - **One in four calls is wrong, and the errors are not one-sided.** Fourteen renders the judge refused
   were accepted, thirteen it accepted were refused. A monitor that only ever erred one way would at
   least be correctable by a threshold; this one is not, which is why the threshold is fitted for
