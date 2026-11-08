@@ -24,6 +24,24 @@ def test_a_walk_returns_the_steps_plus_the_noise_it_started_from():
     assert torch.allclose(frames[0], again[0]), "the same seed has to start from the same noise"
 
 
+def test_the_clean_tail_lands_where_the_walk_lands_when_the_field_is_constant():
+    """A jump to the implied clean cloud has to end where stepping all the way there ends."""
+
+    class Constant(torch.nn.Module):
+        def forward(self, x, t, text):
+            return torch.ones_like(x)
+
+    text, start = torch.zeros(1, 4), torch.zeros(1, 8, 6)
+    plain = sample(Constant(), text, steps=8, start=start)
+    tailed = sample(Constant(), text, steps=8, start=start, clean_tail=3)
+    assert plain.shape == (9, 1, 8, 6)
+    assert tailed.shape == (7, 1, 8, 6), "five Euler steps, the noise, then the jump"
+    assert torch.allclose(plain[-1], tailed[-1], atol=1e-6)
+    assert torch.equal(plain[-1], torch.ones(1, 8, 6)), "a constant field of one moves the cloud by one"
+    off = sample(Constant(), text, steps=8, start=start, clean_tail=0)
+    assert torch.equal(off[-1], plain[-1]), "the default walk must not change"
+
+
 def test_the_loss_reaches_zero_for_a_field_that_is_exactly_the_transport():
     """A model that already predicts `x1 - x0` must score zero, or the loss is not what it says."""
     cloud = torch.randn(2, 64, 6)

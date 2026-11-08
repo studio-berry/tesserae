@@ -129,11 +129,17 @@ class PointDiT(nn.Module):
 
 
 @torch.no_grad()
-def sample(model: PointDiT, text: torch.Tensor, steps: int = 32, seed: int | None = None, start: torch.Tensor | None = None):
+def sample(model: PointDiT, text: torch.Tensor, steps: int = 32, seed: int | None = None, start: torch.Tensor | None = None, clean_tail: int = 0):
     """Euler walk from noise to shape. Returns every frame, `[steps + 1, B, P, 6]`.
 
     The first frame is the noise the walk started from, because the app draws that frame too: the
     drifting dust the object assembles out of is the seed, not a decoration.
+
+    `clean_tail` trades that many Euler steps for one jump to the field's implied clean cloud,
+    `x_t + (1 - t) * v`. On the 1,000-cloud model a tail of four takes surface-ness from 0.139 to
+    0.137 against 0.069 for the data, so it smooths a little and cures nothing. It is off by default,
+    which leaves every sample drawn before it existed identical, and the jump is the last frame, so
+    a longer tail returns fewer frames.
     """
     device = text.device
     b = text.shape[0]
@@ -145,9 +151,14 @@ def sample(model: PointDiT, text: torch.Tensor, steps: int = 32, seed: int | Non
         x = kd_sort(x)
     frames = [x.clone()]
     dt = 1.0 / steps
-    for i in range(steps):
+    tail = max(0, min(clean_tail, steps))
+    for i in range(steps - tail):
         t = torch.full((b,), i * dt, device=device)
         x = x + dt * model(x, t, text)
+        frames.append(x.clone())
+    if tail:
+        t = torch.full((b,), (steps - tail) * dt, device=device)
+        x = x + (1 - t) * model(x, t, text)
         frames.append(x.clone())
     return torch.stack(frames)
 
