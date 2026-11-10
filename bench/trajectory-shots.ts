@@ -19,11 +19,11 @@ const FRAMES = Math.round(num('frames', 40))
 const STEP_MS = Math.round(num('ms', 110))
 const PORT = Math.round(num('port', 5181))
 const CDP = Math.round(num('cdp', 9336))
-const PROFILE = mkdtempSync(join(tmpdir(), 'gen-ascii-shots-'))
 const PLAY_MS = Math.round(num('play', 110)) // how long each model step holds, the app's ?ms=
 
 async function main() {
   mkdirSync(OUT, { recursive: true })
+  const PROFILE = mkdtempSync(join(tmpdir(), 'gen-ascii-shots-'))
   const server = spawn('npx', ['vite', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], {
     stdio: 'ignore', shell: process.platform === 'win32',
   })

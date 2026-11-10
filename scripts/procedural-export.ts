@@ -17,7 +17,7 @@
 // docs/procedural-data.md has the caption scheme, the licence position and the numbers.
 
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
 import { mulberry32 } from '../src/engine/core.ts'
@@ -150,7 +150,12 @@ const main = async () => {
       console.log(`  ${shardName(k)} already written`)
       continue
     }
+    // a cleaned shard still has its old manifest: set it aside, so a stop halfway through the new arrays
+    // cannot leave a manifest that says the shard is whole; the new manifest is the last file published
+    const manifest = join(out, `${shardName(k)}.jsonl`)
+    if (existsSync(manifest)) await rename(manifest, `${manifest}.previous`)
     const done = await writeShard(out, k, rows.slice(k * args.shard, (k + 1) * args.shard), args.points, args.rgb)
+    await rm(`${manifest}.previous`, { force: true })
     kept += done.kept
     lost += done.failed.length
     for (const f of done.failed) console.log(`  ${f.uid}: ${f.why}`)
