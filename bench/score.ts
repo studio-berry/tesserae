@@ -11,7 +11,7 @@
 
 import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 import { arg, flag, num } from './lib/args.ts'
 import { capture, warm } from './lib/capture.ts'
 import { Tab, alive, launchChrome } from './lib/cdp.ts'
@@ -34,8 +34,11 @@ export function plan(samples: string, promptsFile: string, ext = 'ply'): Plannin
   for (const p of prompts) {
     const file = join(samples, `${p.id}.${ext}`)
     if (!existsSync(file)) { missing.push(p.id); continue }
-    // the dev server serves the repository root, so the URL is the file's path under it
-    rows.push({ id: p.id, prompt: p.prompt, file, url: `/${relative(ROOT, file).split('\\').join('/')}` })
+    // the dev server serves the repository root, so the URL is the file's path under it; a file outside
+    // it would get a URL with `..` that the browser flattens into some other path
+    const under = relative(ROOT, file)
+    if (under.startsWith('..') || isAbsolute(under)) throw new Error(`${file} is outside the repository; put the samples under ${ROOT} (the dev server serves only that tree)`)
+    rows.push({ id: p.id, prompt: p.prompt, file, url: `/${under.split('\\').join('/')}` })
   }
   return { rows, missing }
 }
@@ -44,11 +47,12 @@ export type Score = { read: number; thumb: number; judged: number; drawn: number
 
 export function summariseScores(rows: Result[], elapsedMs: number): Score {
   const judged = rows.filter((r) => r.reads !== null)
+  const thumbs = rows.filter((r) => r.readsThumb !== null)
   const drawn = rows.filter((r) => r.drawn)
   const walls = drawn.map((r) => r.navMs).filter((t): t is number => typeof t === 'number')
   return {
     read: pct(judged.filter((r) => r.reads).length, judged.length),
-    thumb: pct(judged.filter((r) => r.readsThumb).length, judged.length),
+    thumb: pct(thumbs.filter((r) => r.readsThumb).length, thumbs.length),
     judged: judged.length,
     drawn: drawn.length,
     wallP50: quantile(walls, 0.5),

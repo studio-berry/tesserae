@@ -1,3 +1,4 @@
+import json
 import re
 import subprocess
 import sys
@@ -23,7 +24,7 @@ def test_a_save_also_writes_the_state_a_resume_needs(tmp_path):
     write_shards(tmp_path / "d", n=4, points=64)
     assert train(tmp_path / "d", tmp_path / "o", 10).returncode == 0
     saved = torch.load(tmp_path / "o" / "resume.pt")
-    assert set(saved) == {"model", "opt", "step", "running", "best"}
+    assert set(saved) == {"model", "opt", "step", "running", "best", "args"}
     assert saved["step"] == 10
     assert not (tmp_path / "o" / "resume.tmp").exists()
     assert "opt" not in torch.load(tmp_path / "o" / "last.pt"), "last.pt keeps the shape the sampling scripts load"
@@ -47,6 +48,20 @@ def test_resume_continues_from_the_saved_step_on_the_same_schedule(tmp_path):
     assert resumed == [10, 15]
     # the learning rate follows the absolute step, so it matches the uninterrupted run
     assert lines(tmp_path / "cut")[15] == lines(tmp_path / "whole")[15]
+
+
+def test_resume_refuses_a_changed_setting_and_keeps_the_run_record(tmp_path):
+    write_shards(tmp_path / "d", n=4, points=64)
+    assert train(tmp_path / "d", tmp_path / "o", 10).returncode == 0
+    first = json.loads((tmp_path / "o" / "train.json").read_text(encoding="utf-8"))
+    changed = train(tmp_path / "d", tmp_path / "o", 20, "--resume", "--kd")
+    assert changed.returncode != 0
+    assert "kd differ" in changed.stderr
+    again = train(tmp_path / "d", tmp_path / "o", 20, "--resume")
+    assert again.returncode == 0
+    record = json.loads((tmp_path / "o" / "train.json").read_text(encoding="utf-8"))
+    assert record["started"] == first["started"]
+    assert [r["step"] for r in record["resumptions"]] == [10]
 
 
 def test_resume_without_a_saved_state_starts_from_zero(tmp_path):

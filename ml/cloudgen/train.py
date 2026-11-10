@@ -30,6 +30,11 @@ from .model import PointDiT, flow_loss
 from .text import encoder
 
 
+# what a resumed run must share with the run that wrote its state: the data, the model's shape and
+# the pairing, so the checkpoint's provenance stays true of everything it was trained on
+RESUME_FIXED = ["data", "mix", "dim", "depth", "heads", "patch", "points", "cond", "tscale", "kd", "pos", "order", "text", "turn", "seed"]
+
+
 def cosine_lr(step: int, total: int, warmup: int, peak: float) -> float:
     if step < warmup:
         return peak * (step + 1) / max(1, warmup)
@@ -111,11 +116,18 @@ def main() -> None:
     print(f"encoded {len(distinct)} distinct captions of {len(caption_ids)} in {time.time() - started:.0f}s", flush=True)
 
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.95), weight_decay=0.01)
+    prior = None
+    if args.resume and (out / "train.json").exists():
+        prior = json.loads((out / "train.json").read_text(encoding="utf-8"))
     record = {
         "args": vars(args), "parameters": model.parameters_count(), "clouds": len(dataset),
         "shards": len(shards), "captions": len(distinct), "data": [g.record() for g in groups],
         "text_encoder": encode.name, "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+    if prior is not None:
+        # the run's own start and history survive a restart; only this process's inputs are new
+        record["started"] = prior.get("started", record["started"])
+        record["resumptions"] = list(prior.get("resumptions", []))
     (out / "train.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
 
     running = None
@@ -124,6 +136,9 @@ def main() -> None:
     resume_path = out / "resume.pt"
     if args.resume and resume_path.exists():
         saved = torch.load(resume_path, map_location=args.device)
+        changed = [k for k in RESUME_FIXED if k in saved.get("args", {}) and saved["args"][k] != vars(args)[k]]
+        if changed:
+            raise SystemExit(f"cannot resume {out}: {', '.join(changed)} differ from the run that wrote resume.pt")
         model.load_state_dict(saved["model"])
         opt.load_state_dict(saved["opt"])
         first, running, best = saved["step"], saved["running"], saved["best"]
@@ -131,6 +146,7 @@ def main() -> None:
         dataset.rng = np.random.default_rng(args.seed + first)
         torch.manual_seed(args.seed + first)
         record["resumed_from"] = first
+        record.setdefault("resumptions", []).append({"step": first, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
         (out / "train.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
         print(f"resumed from step {first}", flush=True)
     started = time.time()
@@ -175,7 +191,8 @@ def main() -> None:
                 best = running
                 torch.save(ckpt, out / "best.pt")
             # what a crash needs to carry on: optimiser state too, written whole or not at all
-            torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step + 1, "running": running, "best": best}, out / "resume.tmp")
+            torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "step": step + 1, "running": running, "best": best,
+                        "args": {k: vars(args)[k] for k in RESUME_FIXED}}, out / "resume.tmp")
             (out / "resume.tmp").replace(resume_path)
             print(f"saved at step {step + 1}", flush=True)
 

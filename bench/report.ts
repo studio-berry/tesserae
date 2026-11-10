@@ -46,6 +46,7 @@ export type Summary = {
   readThumb: number
   readRate: number
   thumbRate: number
+  thumbJudged: number
   p50: number | null
   p95: number | null
   wallP50: number | null
@@ -67,6 +68,7 @@ export function summarise(rows: Result[]): Summary {
     readThumb: thumbs.filter((r) => r.readsThumb).length,
     readRate: pct(read, judged.length),
     thumbRate: pct(thumbs.filter((r) => r.readsThumb).length, thumbs.length),
+    thumbJudged: thumbs.length,
     p50: quantile(times, 0.5),
     p95: quantile(times, 0.95),
     wallP50: quantile(walls, 0.5),
@@ -90,7 +92,8 @@ export function categoryTable(rows: Result[], sources: string[]): string {
       const mine = here.filter((r) => r.source === source && r.reads !== null)
       const thumbs = here.filter((r) => r.source === source && r.readsThumb !== null)
       if (!mine.length) return '— | — |'
-      return `${pct(mine.filter((r) => r.reads).length, mine.length)}% | ${pct(thumbs.filter((r) => r.readsThumb).length, thumbs.length)}% |`
+      const thumbCell = thumbs.length ? `${pct(thumbs.filter((r) => r.readsThumb).length, thumbs.length)}%` : '—'
+      return `${pct(mine.filter((r) => r.reads).length, mine.length)}% | ${thumbCell} |`
     })
     return `| ${category} | ${here.length / Math.max(1, sources.length)} | ${cells.join(' ')}`
   })
@@ -106,7 +109,7 @@ export function markdown(rows: Result[], meta: Meta): string {
     '| source | tested | drawn | reads | thumbnail reads | page clock p50 | p95 | wall p50 | p95 |',
     '|---|---|---|---|---|---|---|---|---|',
     ...overall.map(({ source, summary: s }) =>
-      `| ${label(source)} | ${s.tested} | ${s.drawn} | ${s.readRate}% (${s.read}/${s.judged}) | ${s.thumbRate}% | ${s.p50 ?? '—'} ms | ${s.p95 ?? '—'} ms | ${s.wallP50 ?? '—'} ms | ${s.wallP95 ?? '—'} ms |`),
+      `| ${label(source)} | ${s.tested} | ${s.drawn} | ${s.readRate}% (${s.read}/${s.judged}) | ${s.thumbJudged ? `${s.thumbRate}%` : '—'} | ${s.p50 ?? '—'} ms | ${s.p95 ?? '—'} ms | ${s.wallP50 ?? '—'} ms | ${s.wallP95 ?? '—'} ms |`),
   ].join('\n')
 
   const misses = rows

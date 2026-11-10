@@ -2,6 +2,7 @@
 // The browser half is verified by running it against the shipped baselines.
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { plan, summariseScores } from './score.ts'
@@ -57,7 +58,27 @@ describe('plan', () => {
   })
 })
 
+describe('plan outside the repository', () => {
+  it('refuses samples the dev server cannot serve, instead of building a url with ..', () => {
+    const outside = join(tmpdir(), 'score-outside-test')
+    mkdirSync(outside, { recursive: true })
+    try {
+      writeFileSync(join(outside, 'p001.ply'), 'x')
+      const prompts = join(outside, 'prompts.jsonl')
+      writeFileSync(prompts, '{"id":"p001","prompt":"a teapot"}')
+      expect(() => plan(outside, prompts)).toThrow('outside the repository')
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('summariseScores', () => {
+  it('takes the thumbnail rate over the rows that have a thumbnail verdict', () => {
+    const rows = [row('p001', { readsThumb: true }), row('p002', { reads: false, readsThumb: null }), row('p003', { readsThumb: null })]
+    expect(summariseScores(rows, 0).thumb).toBe(100)
+  })
+
   it('counts reads over the judged rows only, and reports a row that never drew', () => {
     const rows = [
       row('p001'),
