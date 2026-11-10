@@ -1,6 +1,7 @@
 // A held-out set is only worth having if the training never saw it and a wrong key cannot quietly
 // produce a plausible score. Both are asserted here.
 
+import { createCipheriv, createHash, randomBytes } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { overlap, seal, unseal } from './held-out.ts'
 
@@ -20,6 +21,14 @@ describe('seal and unseal', () => {
 
   it('refuses a file that was never sealed', () => {
     expect(() => unseal(Buffer.from('{"id":"h001"}'), KEY)).toThrow('not a held-out file')
+  })
+
+  it('still opens a file sealed before the salt existed', () => {
+    const iv = randomBytes(12)
+    const cipher = createCipheriv('aes-256-gcm', createHash('sha256').update(KEY, 'utf8').digest(), iv)
+    const body = Buffer.concat([cipher.update('old file', 'utf8'), cipher.final()])
+    const old = Buffer.concat([Buffer.from('GATHOLDOUT1', 'utf8'), iv, cipher.getAuthTag(), body])
+    expect(unseal(old, KEY)).toBe('old file')
   })
 
   it('does not repeat its initialisation vector, so two seals of one file differ', () => {

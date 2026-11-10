@@ -6,33 +6,43 @@
 //   node scripts/held-out.ts --decrypt --in bench/held-out.jsonl.enc --out .cache/held-out.jsonl --key "$BENCH_HELDOUT_KEY"
 //   node scripts/held-out.ts --check   --in bench/held-out.jsonl.enc --key "$BENCH_HELDOUT_KEY"
 //
-// AES-256-GCM with the key derived from the passphrase, and the tag checked on open: a wrong key fails
-// loudly instead of yielding plausible garbage that scores as a bad model.
+// AES-256-GCM with the key derived from the passphrase by scrypt under a random salt kept in the file,
+// and the tag checked on open: a wrong key fails loudly instead of yielding plausible garbage that
+// scores as a bad model. Files sealed before the salt (marker GATHOLDOUT1, a bare SHA-256 of the
+// passphrase) still open; re-seal one with --decrypt then --encrypt to move it to the slow derivation.
 
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, randomBytes, scryptSync } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { arg, flag } from '../bench/lib/args.ts'
 
-const MAGIC = 'GATHOLDOUT1'
+const MAGIC = 'GATHOLDOUT2'
+const LEGACY_MAGIC = 'GATHOLDOUT1'
+const SALT_BYTES = 16
 const IV_BYTES = 12
 const TAG_BYTES = 16
 
-const keyFrom = (passphrase: string) => createHash('sha256').update(passphrase, 'utf8').digest()
+const keyFrom = (passphrase: string, salt: Buffer) => scryptSync(passphrase, salt, 32, { N: 2 ** 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 })
+const legacyKeyFrom = (passphrase: string) => createHash('sha256').update(passphrase, 'utf8').digest()
 
 export function seal(plain: string, passphrase: string): Buffer {
+  const salt = randomBytes(SALT_BYTES)
   const iv = randomBytes(IV_BYTES)
-  const cipher = createCipheriv('aes-256-gcm', keyFrom(passphrase), iv)
+  const cipher = createCipheriv('aes-256-gcm', keyFrom(passphrase, salt), iv)
   const body = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()])
-  return Buffer.concat([Buffer.from(MAGIC, 'utf8'), iv, cipher.getAuthTag(), body])
+  return Buffer.concat([Buffer.from(MAGIC, 'utf8'), salt, iv, cipher.getAuthTag(), body])
 }
 
 export function unseal(sealed: Buffer, passphrase: string): string {
   const head = Buffer.from(MAGIC, 'utf8')
-  if (!sealed.subarray(0, head.length).equals(head)) throw new Error('not a held-out file: the marker is missing')
-  const ivAt = head.length
+  const legacy = Buffer.from(LEGACY_MAGIC, 'utf8')
+  const isLegacy = sealed.subarray(0, legacy.length).equals(legacy)
+  if (!isLegacy && !sealed.subarray(0, head.length).equals(head)) throw new Error('not a held-out file: the marker is missing')
+  const saltAt = head.length
+  const ivAt = isLegacy ? saltAt : saltAt + SALT_BYTES
   const tagAt = ivAt + IV_BYTES
   const bodyAt = tagAt + TAG_BYTES
-  const decipher = createDecipheriv('aes-256-gcm', keyFrom(passphrase), sealed.subarray(ivAt, tagAt))
+  const key = isLegacy ? legacyKeyFrom(passphrase) : keyFrom(passphrase, sealed.subarray(saltAt, ivAt))
+  const decipher = createDecipheriv('aes-256-gcm', key, sealed.subarray(ivAt, tagAt))
   decipher.setAuthTag(sealed.subarray(tagAt, bodyAt))
   try {
     return Buffer.concat([decipher.update(sealed.subarray(bodyAt)), decipher.final()]).toString('utf8')
