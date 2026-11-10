@@ -38,7 +38,7 @@ export function plan(samples: string, promptsFile: string, ext = 'ply'): Plannin
     // it would get a URL with `..` that the browser flattens into some other path
     const under = relative(ROOT, file)
     if (under.startsWith('..') || isAbsolute(under)) throw new Error(`${file} is outside the repository; put the samples under ${ROOT} (the dev server serves only that tree)`)
-    rows.push({ id: p.id, prompt: p.prompt, file, url: `/${under.split('\\').map(encodeURIComponent).join('/')}` })
+    rows.push({ id: p.id, prompt: p.prompt, file, url: `/${under.split(/[\\/]/).map(encodeURIComponent).join('/')}` })
   }
   return { rows, missing }
 }
