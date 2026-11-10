@@ -5,6 +5,10 @@ writes 3D shapes from a prompt. Each model is fetched from the Hub, flattened an
 same code the app draws with (`soupFrom` and `sampleSoup`), and written as points with normals
 and colours, next to its caption and its credit.
 
+The app's own procedural forms are exported in the same shard format by
+`scripts/procedural-export.ts`; `docs/procedural-data.md` describes that set, and both are read by
+the same loader.
+
 ```sh
 npm run export:objaverse -- --limit 200                 # a first look
 npm run export:objaverse                                # the whole shipped index, about 2 hours

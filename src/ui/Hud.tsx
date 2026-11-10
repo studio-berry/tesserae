@@ -5,7 +5,7 @@ import type { Shape } from '../objects'
 import { scanCredit } from '../objects/credit'
 import { scanWords } from '../safety'
 
-const KIND = { library: 'library', text: 'type', file: 'model', prompt: 'prompt', chat: 'scene' }
+const KIND = { library: 'library', text: 'type', file: 'model', prompt: 'prompt', chat: 'scene', trajectory: 'sampling' }
 const STEPS = 11
 
 // sample the ramp across its whole range so the legend shows how ink climbs; short ramps repeat

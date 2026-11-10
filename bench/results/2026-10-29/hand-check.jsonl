@@ -1,0 +1,40 @@
+{"id":"p003","source":"prompt","prompt":"a cast iron frying pan","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p003.png","judge":false}
+{"id":"p011","source":"prompt","prompt":"a floor lamp","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p011.png","judge":false}
+{"id":"p021","source":"prompt","prompt":"a claw hammer","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p021.png","judge":true}
+{"id":"p031","source":"prompt","prompt":"a wood chisel","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p031.png","judge":false}
+{"id":"p042","source":"prompt","prompt":"a skateboard","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p042.png","judge":true}
+{"id":"p052","source":"prompt","prompt":"a bulldozer","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p052.png","judge":false}
+{"id":"p060","source":"prompt","prompt":"a lunar rover","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p060.png","judge":false}
+{"id":"p071","source":"prompt","prompt":"a bus shelter","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p071.png","judge":false}
+{"id":"p081","source":"prompt","prompt":"a fox","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p081.png","judge":false}
+{"id":"p091","source":"prompt","prompt":"a whale","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p091.png","judge":true}
+{"id":"p101","source":"prompt","prompt":"a cactus in a pot","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p101.png","judge":false}
+{"id":"p111","source":"prompt","prompt":"a wheat sheaf","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p111.png","judge":false}
+{"id":"p122","source":"prompt","prompt":"a loaf of bread","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p122.png","judge":true}
+{"id":"p131","source":"prompt","prompt":"a croissant","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p131.png","judge":true}
+{"id":"p142","source":"prompt","prompt":"a knot","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p142.png","judge":true}
+{"id":"p151","source":"prompt","prompt":"a lattice","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p151.png","judge":true}
+{"id":"p161","source":"prompt","prompt":"a cat and a teapot","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p161.png","judge":false}
+{"id":"p170","source":"prompt","prompt":"a bench and a tree","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p170.png","judge":false}
+{"id":"p180","source":"prompt","prompt":"a plough and a field","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p180.png","judge":false}
+{"id":"p191","source":"prompt","prompt":"a helicopter with spinning rotors","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\prompt-p191.png","judge":false}
+{"id":"p004","source":"chat","prompt":"a wooden chair","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p004.png","judge":true}
+{"id":"p011","source":"chat","prompt":"a floor lamp","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p011.png","judge":true}
+{"id":"p021","source":"chat","prompt":"a claw hammer","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p021.png","judge":true}
+{"id":"p030","source":"chat","prompt":"a paint roller","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p030.png","judge":true}
+{"id":"p042","source":"chat","prompt":"a skateboard","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p042.png","judge":true}
+{"id":"p052","source":"chat","prompt":"a bulldozer","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p052.png","judge":false}
+{"id":"p062","source":"chat","prompt":"a windmill","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p062.png","judge":false}
+{"id":"p069","source":"chat","prompt":"a treehouse","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p069.png","judge":false}
+{"id":"p082","source":"chat","prompt":"a cat sitting","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p082.png","judge":true}
+{"id":"p091","source":"chat","prompt":"a whale","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p091.png","judge":true}
+{"id":"p101","source":"chat","prompt":"a cactus in a pot","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p101.png","judge":true}
+{"id":"p111","source":"chat","prompt":"a wheat sheaf","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p111.png","judge":true}
+{"id":"p122","source":"chat","prompt":"a loaf of bread","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p122.png","judge":false}
+{"id":"p132","source":"chat","prompt":"a pizza","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p132.png","judge":false}
+{"id":"p141","source":"chat","prompt":"an abstract spiral tower","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p141.png","judge":true}
+{"id":"p150","source":"chat","prompt":"a maze","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p150.png","judge":false}
+{"id":"p162","source":"chat","prompt":"a fox and a rabbit","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p162.png","judge":false}
+{"id":"p172","source":"chat","prompt":"a rocket and a launch tower","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p172.png","judge":false}
+{"id":"p181","source":"chat","prompt":"a fox, trotting","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p181.png","judge":false}
+{"id":"p191","source":"chat","prompt":"a helicopter with spinning rotors","shot":"bench\\results\\2026-10-29\\shots\\2026-10-30T05-32-36-069Z\\chat-p191.png","judge":false}

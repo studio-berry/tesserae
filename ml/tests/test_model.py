@@ -1,0 +1,113 @@
+import torch
+
+from cloudgen.model import PointDiT, flow_loss, sample, timestep_embedding
+
+
+def tiny(cross: bool = True) -> PointDiT:
+    return PointDiT(points=64, patch=8, dim=32, depth=2, heads=4, text_dim=16, cross=cross)
+
+
+def test_forward_keeps_the_cloud_shape():
+    model = tiny()
+    x = torch.randn(2, 64, 6)
+    out = model(x, torch.rand(2), torch.randn(2, 16))
+    assert out.shape == (2, 64, 6)
+    assert torch.isfinite(out).all()
+
+
+def test_a_walk_returns_the_steps_plus_the_noise_it_started_from():
+    model = tiny()
+    frames = sample(model, torch.randn(1, 16), steps=5, seed=3)
+    assert frames.shape == (6, 1, 64, 6)
+    assert torch.equal(frames[0], frames[0])
+    again = sample(model, torch.randn(1, 16), steps=5, seed=3)
+    assert torch.allclose(frames[0], again[0]), "the same seed has to start from the same noise"
+
+
+def test_the_clean_tail_lands_where_the_walk_lands_when_the_field_is_constant():
+    """A jump to the implied clean cloud has to end where stepping all the way there ends."""
+
+    class Constant(torch.nn.Module):
+        def forward(self, x, t, text):
+            return torch.ones_like(x)
+
+    text, start = torch.zeros(1, 4), torch.zeros(1, 8, 6)
+    plain = sample(Constant(), text, steps=8, start=start)
+    tailed = sample(Constant(), text, steps=8, start=start, clean_tail=3)
+    assert plain.shape == (9, 1, 8, 6)
+    assert tailed.shape == (7, 1, 8, 6), "five Euler steps, the noise, then the jump"
+    assert torch.allclose(plain[-1], tailed[-1], atol=1e-6)
+    assert torch.equal(plain[-1], torch.ones(1, 8, 6)), "a constant field of one moves the cloud by one"
+    off = sample(Constant(), text, steps=8, start=start, clean_tail=0)
+    assert torch.equal(off[-1], plain[-1]), "the default walk must not change"
+
+
+def test_the_loss_reaches_zero_for_a_field_that_is_exactly_the_transport():
+    """A model that already predicts `x1 - x0` must score zero, or the loss is not what it says."""
+    cloud = torch.randn(2, 64, 6)
+    noise = torch.randn(2, 64, 6)
+    t = torch.rand(2)
+
+    class Oracle(torch.nn.Module):
+        def forward(self, x, t, text):
+            return cloud - noise
+
+    value = flow_loss(Oracle(), cloud, torch.zeros(2, 16), noise=noise)
+    assert value.item() < 1e-10
+    assert t.shape == (2,)
+
+
+def test_the_conditioning_can_be_cross_attention_or_adaptive_norm():
+    for cross in (True, False):
+        model = tiny(cross=cross)
+        out = model(torch.randn(1, 64, 6), torch.rand(1), torch.randn(1, 16))
+        assert out.shape == (1, 64, 6)
+
+
+def test_a_few_hundred_steps_learn_something():
+    """Not a quality claim: the loss has to fall on one fixed cloud, or training is not wired up."""
+    torch.manual_seed(0)
+    model = tiny(cross=False)
+    cloud = torch.randn(2, 64, 6) * 0.5
+    text = torch.randn(2, 16)
+    opt = torch.optim.AdamW(model.parameters(), lr=3e-3)
+    first = last = None
+    for _ in range(120):
+        loss = flow_loss(model, cloud, text)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+        first = float(loss) if first is None else first
+        last = float(loss)
+    assert last < first * 0.8, f"loss went {first:.3f} → {last:.3f}"
+
+
+def test_the_time_embedding_is_bounded_and_differs_per_step():
+    emb = timestep_embedding(torch.tensor([0.0, 0.5, 1.0]), 128)
+    assert emb.shape == (3, 128)
+    assert torch.isfinite(emb).all()
+    assert not torch.allclose(emb[0], emb[1])
+
+
+def test_a_bf16_step_gives_a_finite_fp32_loss_and_fp32_gradients():
+    from cloudgen.train import step_loss
+
+    model = tiny()
+    loss = step_loss(model, torch.randn(2, 64, 6), torch.randn(2, 16), "bf16")
+    assert loss.dtype == torch.float32
+    assert torch.isfinite(loss)
+    loss.backward()
+    grads = [p.grad for p in model.parameters() if p.grad is not None]
+    assert grads and all(g.dtype == torch.float32 for g in grads)
+
+
+def test_an_fp32_step_is_the_plain_flow_loss():
+    from cloudgen.train import step_loss
+
+    model = tiny()
+    cloud, text = torch.randn(2, 64, 6), torch.randn(2, 16)
+    torch.manual_seed(5)
+    a = step_loss(model, cloud, text, "fp32")
+    torch.manual_seed(5)
+    b = flow_loss(model, cloud, text)
+    assert torch.equal(a, b)

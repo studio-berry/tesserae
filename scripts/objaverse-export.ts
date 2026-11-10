@@ -27,7 +27,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { mulberry32 } from '../src/engine/core.ts'
 import { passesContent } from '../src/objects/credit.ts'
 import { glbUrls, sketchfabUrl, type Index, type IndexRow } from '../src/objects/objaverse-index.ts'
-import { normalize, sampleSoup } from '../src/objects/sample.ts'
+import { normalize, sampleSoup } from '../src/core/sample.ts'
 import { soupFrom } from '../src/objects/soup.ts'
 import { countTriangles, fetchModel, MAX_BYTES, MAX_TRIS } from '../src/objects/url-loader.ts'
 import { npy, srgbByte, stripTextures, toHalf } from './objaverse-export-format.ts'
@@ -269,7 +269,7 @@ const main = async () => {
     uids: createHash('sha256').update(rows.map((r) => r.uid).join('\n')).digest('hex'),
     channels: { points: ['x', 'y', 'z', 'nx', 'ny', 'nz'], rgb: ['r', 'g', 'b'] },
     space: "unit sphere, centred on the bounding box, in the file's own glTF axes (Y up by the spec)",
-    sampler: 'src/objects/sample.ts sampleSoup: blue noise, Morton ordered, seeded by uid',
+    sampler: 'src/core/sample.ts sampleSoup: blue noise, Morton ordered, seeded by uid',
   }
   // a resumed run has to be the same export, or its shards would hold two different things
   const metaPath = join(out, 'meta.json')

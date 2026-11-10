@@ -1,0 +1,25 @@
+{
+  "train": {
+    "n": 480,
+    "agree": 0.973,
+    "read_rate_true": 0.294,
+    "read_rate_pred": 0.312,
+    "tp": 139,
+    "fp": 11,
+    "fn": 2,
+    "tn": 328
+  },
+  "test": {
+    "n": 120,
+    "agree": 0.775,
+    "read_rate_true": 0.3,
+    "read_rate_pred": 0.308,
+    "tp": 23,
+    "fp": 14,
+    "fn": 13,
+    "tn": 70
+  },
+  "threshold": 0.478,
+  "encoder": "pixels",
+  "features": 688
+}
