@@ -7,6 +7,7 @@ import {
   plan,
   rebuildArgs,
   resumeConflict,
+  shardFiles,
   uidOf,
   type Provenance,
 } from './procedural-export-lib.ts'
@@ -14,6 +15,13 @@ import { checkParts, checkRuns, defaultVerify, deletable, partsReadBy, type Part
 
 const items = ['teapot', 'knot', 'shell'].map((id) => ({ id }))
 const prov = (over: Partial<Provenance> = {}): Provenance => ({ commit: 'a'.repeat(40), dirty: [], bundle: 'b'.repeat(64), three: '0.176.0', node: 'v24', ...over })
+
+describe('shardFiles', () => {
+  it('needs the arrays as well as the manifest, so a cleaned shard is rebuilt', () => {
+    expect(shardFiles('shard-00000', true)).toEqual(['shard-00000.jsonl', 'shard-00000.points.npy', 'shard-00000.rgb.npy'])
+    expect(shardFiles('shard-00000', false)).toEqual(['shard-00000.jsonl', 'shard-00000.points.npy'])
+  })
+})
 
 describe('the export arguments', () => {
   it('keeps colour unless --no-rgb, and refuses dirty source unless --allow-dirty', () => {

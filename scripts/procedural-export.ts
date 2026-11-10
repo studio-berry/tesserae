@@ -33,6 +33,7 @@ import {
   plan,
   provenanceOf,
   resumeConflict,
+  shardFiles,
   shardName,
   uidOf,
   type Meta,
@@ -145,7 +146,7 @@ const main = async () => {
   let kept = 0
   let lost = 0
   for (let k = 0; k < shards; k++) {
-    if (existsSync(join(out, `${shardName(k)}.jsonl`))) {
+    if (shardFiles(shardName(k), args.rgb).every((f) => existsSync(join(out, f)))) {
       console.log(`  ${shardName(k)} already written`)
       continue
     }

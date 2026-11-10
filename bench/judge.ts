@@ -15,7 +15,8 @@ export const JUDGE_MODEL = process.env.BENCH_JUDGE_MODEL?.trim() || 'claude-haik
 export const CALLS = 3
 export const TEMPERATURE = 0.7
 
-export type Verdict = { reads: boolean; reason: string }
+// `failed` marks a call that never got an answer (rejected, or retries spent): it is not a vote
+export type Verdict = { reads: boolean; reason: string; failed?: boolean }
 
 export const question = (prompt: string) =>
   `The image is a 3D object drawn as small glyphs, dots or lettering. ` +
@@ -102,17 +103,24 @@ async function ask(judge: Judge, png: Buffer, prompt: string): Promise<Verdict> 
       await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)))
       continue
     }
-    if (!res.ok) return { reads: false, reason: `the judge answered ${res.status}` }
+    if (!res.ok) return { reads: false, reason: `the judge answered ${res.status}`, failed: true }
     const body = (await res.json()) as Reply
     const choice = body.choices?.[0]
     const content = choice?.message?.content ?? ''
     if (!content) { last = body.error?.message ?? `the judge said nothing (${choice?.finish_reason ?? 'no choice'})`; continue }
     return parseVerdict(content)
   }
-  return { reads: false, reason: last.slice(0, 120) }
+  return { reads: false, reason: last.slice(0, 120), failed: true }
 }
 
-export type Judgement = { reads: boolean; readsThumb: boolean; votes: boolean[]; reason: string }
+// reads is null when no call got an answer, so an outage reports as not judged, never as a no
+export type Judgement = { reads: boolean | null; readsThumb: boolean | null; votes: boolean[]; reason: string }
+
+const answered = (calls: Verdict[]) => calls.filter((c) => !c.failed)
+const decide = (calls: Verdict[]): boolean | null => {
+  const ok = answered(calls)
+  return ok.length ? majority(ok.map((c) => c.reads)) : null
+}
 
 // Three independent calls, each pair of images judged by the same question. The thumbnail's vote is
 // kept apart: "reads at full size" and "reads at a fifth of the size" are different claims, and the
@@ -121,14 +129,15 @@ export async function judge(judge: Judge, shot: Buffer, thumb: Buffer, prompt: s
   const calls = await Promise.all([
     ask(judge, shot, prompt), ask(judge, shot, prompt), ask(judge, shot, prompt),
   ])
-  const votes = calls.map((c) => c.reads)
+  const votes = answered(calls).map((c) => c.reads)
   const thumbs = await Promise.all([
     ask(judge, thumb, prompt), ask(judge, thumb, prompt), ask(judge, thumb, prompt),
   ])
-  const winner = calls.find((c) => c.reads === majority(votes)) ?? calls[0]
+  const reads = decide(calls)
+  const winner = answered(calls).find((c) => c.reads === reads) ?? calls[0]
   return {
-    reads: majority(votes),
-    readsThumb: majority(thumbs.map((t) => t.reads)),
+    reads,
+    readsThumb: decide(thumbs),
     votes,
     reason: winner?.reason ?? '',
   }

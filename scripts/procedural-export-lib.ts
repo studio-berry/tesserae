@@ -77,6 +77,10 @@ export const uidOf = (row: Planned<{ id: string }>) => `${row.item.id}-s${row.se
 
 export const shardName = (k: number) => `shard-${String(k).padStart(5, '0')}`
 
+// A shard is written only when its manifest and every array are there. The cleanup keeps the
+// manifests and deletes the arrays, so the manifest alone must not make a rebuild skip the shard.
+export const shardFiles = (name: string, rgb: boolean) => [`${name}.jsonl`, `${name}.points.npy`, ...(rgb ? [`${name}.rgb.npy`] : [])]
+
 // The code that wrote a run. `dirty` lists the source files that differed from `commit`, so a run
 // made from uncommitted code says so and the clean script refuses to delete what it cannot rebuild.
 export type Provenance = {

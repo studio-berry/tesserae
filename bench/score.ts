@@ -67,16 +67,30 @@ export async function openScorer(options: { port: number; cdp: number; profile: 
   const server = flag('reuse') ? null : spawn('npx', ['vite', '--host', '127.0.0.1', '--port', String(options.port), '--strictPort'], {
     cwd: ROOT, stdio: 'ignore', shell: process.platform === 'win32',
   })
-  if (!(await alive(`http://127.0.0.1:${options.port}/`))) throw new Error(`nothing answered at http://127.0.0.1:${options.port}/`)
-  const chrome = launchChrome(options.cdp, options.profile)
-  if (!(await alive(`http://127.0.0.1:${options.cdp}/json/version`, 60))) throw new Error('headless Chrome never came up')
-  const tab = await Tab.open(options.cdp)
-  await warm(tab, `http://127.0.0.1:${options.port}/?theme=${options.theme}&n=${options.density}`)
+  let chrome: ReturnType<typeof launchChrome> | null = null
+  let tab: Tab | null = null
+  // a startup that fails after the processes exist has to take them down, or a later run connects to the leftovers
+  const teardown = async () => {
+    try { await tab?.close() } catch { /* already gone */ }
+    chrome?.close()
+    try { server?.kill() } catch { /* already gone */ }
+  }
+  try {
+    if (!(await alive(`http://127.0.0.1:${options.port}/`))) throw new Error(`nothing answered at http://127.0.0.1:${options.port}/`)
+    chrome = launchChrome(options.cdp, options.profile)
+    if (!(await alive(`http://127.0.0.1:${options.cdp}/json/version`, 60))) throw new Error('headless Chrome never came up')
+    tab = await Tab.open(options.cdp)
+    await warm(tab, `http://127.0.0.1:${options.port}/?theme=${options.theme}&n=${options.density}`)
+  } catch (err) {
+    await teardown()
+    throw err
+  }
+  const open = tab
 
   return {
     async score(one) {
       const url = `http://127.0.0.1:${options.port}/?theme=${options.theme}&n=${options.density}&ply=${one.url}`
-      const shot = await capture(tab, url)
+      const shot = await capture(open, url)
       if (options.shots && shot.png) writeFileSync(`${options.shots}/${one.id}.png`, shot.png)
       const row: Result = {
         id: one.id, prompt: one.prompt, category: '', seed: 0, source: 'ply',
@@ -92,11 +106,7 @@ export async function openScorer(options: { port: number; cdp: number; profile: 
       }
       return row
     },
-    async close() {
-      await tab.close()
-      chrome.close()
-      try { server?.kill() } catch { /* already gone */ }
-    },
+    close: teardown,
   }
 }
 

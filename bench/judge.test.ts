@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CALLS, judgeRequest, majority, parseVerdict, readEnv, TEMPERATURE } from './judge.ts'
+import { CALLS, judge, judgeRequest, majority, parseVerdict, readEnv, TEMPERATURE } from './judge.ts'
 
 describe('parseVerdict', () => {
   it('reads READ as a yes and keeps the reason', () => {
@@ -55,5 +55,21 @@ describe('readEnv', () => {
     expect(env.OPENCODE_ZEN_API_KEY).toBe('abc=def')
     expect(env.EMPTY).toBe('')
     expect(Object.keys(env)).toHaveLength(2)
+  })
+})
+
+describe('judge when the service fails', () => {
+  it('reports not judged, never a no, when no call gets an answer', async () => {
+    const real = globalThis.fetch
+    globalThis.fetch = (async () => new Response('{}', { status: 401 })) as typeof fetch
+    try {
+      const png = Buffer.from('x')
+      const out = await judge({ key: 'k', url: 'http://localhost/none', model: 'm' }, png, png, 'a teapot')
+      expect(out.reads).toBeNull()
+      expect(out.readsThumb).toBeNull()
+      expect(out.votes).toEqual([])
+    } finally {
+      globalThis.fetch = real
+    }
   })
 })

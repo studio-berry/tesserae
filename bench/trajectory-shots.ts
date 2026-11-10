@@ -6,7 +6,7 @@
 // fixed cadence from the moment the walk starts; the app's own phase tells us when that is.
 
 import { spawn } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -19,7 +19,7 @@ const FRAMES = Math.round(num('frames', 40))
 const STEP_MS = Math.round(num('ms', 110))
 const PORT = Math.round(num('port', 5181))
 const CDP = Math.round(num('cdp', 9336))
-const PROFILE = join(tmpdir(), 'gen-ascii-shots-profile')
+const PROFILE = mkdtempSync(join(tmpdir(), 'gen-ascii-shots-'))
 const PLAY_MS = Math.round(num('play', 110)) // how long each model step holds, the app's ?ms=
 
 async function main() {
