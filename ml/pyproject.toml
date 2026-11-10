@@ -7,10 +7,12 @@ dependencies = [
   "torch>=2.4",
   "numpy>=1.26",
   "transformers>=4.40",
+  "pillow>=10",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+resnet = ["torchvision>=0.19"]
 
 [build-system]
 requires = ["hatchling"]

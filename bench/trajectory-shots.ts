@@ -7,6 +7,8 @@
 
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { arg, num } from './lib/args.ts'
 import { Tab, alive, launchChrome } from './lib/cdp.ts'
@@ -17,7 +19,7 @@ const FRAMES = Math.round(num('frames', 40))
 const STEP_MS = Math.round(num('ms', 110))
 const PORT = Math.round(num('port', 5181))
 const CDP = Math.round(num('cdp', 9336))
-const PROFILE = `${process.env.TEMPDIR ?? process.env.LOCALAPPDATA ?? '.'}/Temp/gen-ascii-shots-profile`
+const PROFILE = join(tmpdir(), 'gen-ascii-shots-profile')
 const PLAY_MS = Math.round(num('play', 110)) // how long each model step holds, the app's ?ms=
 
 async function main() {

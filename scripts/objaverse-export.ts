@@ -269,7 +269,7 @@ const main = async () => {
     uids: createHash('sha256').update(rows.map((r) => r.uid).join('\n')).digest('hex'),
     channels: { points: ['x', 'y', 'z', 'nx', 'ny', 'nz'], rgb: ['r', 'g', 'b'] },
     space: "unit sphere, centred on the bounding box, in the file's own glTF axes (Y up by the spec)",
-    sampler: 'src/objects/sample.ts sampleSoup: blue noise, Morton ordered, seeded by uid',
+    sampler: 'src/core/sample.ts sampleSoup: blue noise, Morton ordered, seeded by uid',
   }
   // a resumed run has to be the same export, or its shards would hold two different things
   const metaPath = join(out, 'meta.json')
