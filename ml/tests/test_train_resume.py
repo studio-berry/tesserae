@@ -54,9 +54,13 @@ def test_resume_refuses_a_changed_setting_and_keeps_the_run_record(tmp_path):
     write_shards(tmp_path / "d", n=4, points=64)
     assert train(tmp_path / "d", tmp_path / "o", 10).returncode == 0
     first = json.loads((tmp_path / "o" / "train.json").read_text(encoding="utf-8"))
+    before = (tmp_path / "o" / "train.json").read_text(encoding="utf-8")
     changed = train(tmp_path / "d", tmp_path / "o", 20, "--resume", "--kd")
     assert changed.returncode != 0
     assert "kd differ" in changed.stderr
+    assert (tmp_path / "o" / "train.json").read_text(encoding="utf-8") == before
+    limited = train(tmp_path / "d", tmp_path / "o", 20, "--resume", "--limit-shards", "1")
+    assert limited.returncode != 0 and "limit_shards differ" in limited.stderr
     again = train(tmp_path / "d", tmp_path / "o", 20, "--resume")
     assert again.returncode == 0
     record = json.loads((tmp_path / "o" / "train.json").read_text(encoding="utf-8"))

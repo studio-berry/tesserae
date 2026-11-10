@@ -32,7 +32,7 @@ from .text import encoder
 
 # what a resumed run must share with the run that wrote its state: the data, the model's shape and
 # the pairing, so the checkpoint's provenance stays true of everything it was trained on
-RESUME_FIXED = ["data", "mix", "dim", "depth", "heads", "patch", "points", "cond", "tscale", "kd", "pos", "order", "text", "turn", "seed"]
+RESUME_FIXED = ["data", "mix", "dim", "depth", "heads", "patch", "points", "cond", "tscale", "kd", "pos", "order", "text", "turn", "seed", "limit_shards"]
 
 
 def cosine_lr(step: int, total: int, warmup: int, peak: float) -> float:
@@ -128,7 +128,6 @@ def main() -> None:
         # the run's own start and history survive a restart; only this process's inputs are new
         record["started"] = prior.get("started", record["started"])
         record["resumptions"] = list(prior.get("resumptions", []))
-    (out / "train.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
 
     running = None
     best = float("inf")
@@ -136,9 +135,13 @@ def main() -> None:
     resume_path = out / "resume.pt"
     if args.resume and resume_path.exists():
         saved = torch.load(resume_path, map_location=args.device)
-        changed = [k for k in RESUME_FIXED if k in saved.get("args", {}) and saved["args"][k] != vars(args)[k]]
+        was = saved.get("args", {})
+        changed = [k for k in RESUME_FIXED if k in was and was[k] != vars(args)[k]]
         if changed:
             raise SystemExit(f"cannot resume {out}: {', '.join(changed)} differ from the run that wrote resume.pt")
+        unchecked = [k for k in RESUME_FIXED if k not in was]
+        if unchecked:
+            print(f"warning: resume.pt predates the record of {', '.join(unchecked)}, so they are not checked", flush=True)
         model.load_state_dict(saved["model"])
         opt.load_state_dict(saved["opt"])
         first, running, best = saved["step"], saved["running"], saved["best"]
@@ -147,8 +150,9 @@ def main() -> None:
         torch.manual_seed(args.seed + first)
         record["resumed_from"] = first
         record.setdefault("resumptions", []).append({"step": first, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-        (out / "train.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
         print(f"resumed from step {first}", flush=True)
+    # written only now: a resume the checks above refuse must leave the run's record as it was
+    (out / "train.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
     started = time.time()
     log = (out / "train.log").open("a", encoding="utf-8")
     for step in range(first, args.steps):

@@ -38,7 +38,7 @@ export function plan(samples: string, promptsFile: string, ext = 'ply'): Plannin
     // it would get a URL with `..` that the browser flattens into some other path
     const under = relative(ROOT, file)
     if (under.startsWith('..') || isAbsolute(under)) throw new Error(`${file} is outside the repository; put the samples under ${ROOT} (the dev server serves only that tree)`)
-    rows.push({ id: p.id, prompt: p.prompt, file, url: `/${under.split('\\').join('/')}` })
+    rows.push({ id: p.id, prompt: p.prompt, file, url: `/${under.split('\\').map(encodeURIComponent).join('/')}` })
   }
   return { rows, missing }
 }
@@ -93,7 +93,7 @@ export async function openScorer(options: { port: number; cdp: number; profile: 
 
   return {
     async score(one) {
-      const url = `http://127.0.0.1:${options.port}/?theme=${options.theme}&n=${options.density}&ply=${one.url}`
+      const url = `http://127.0.0.1:${options.port}/?theme=${options.theme}&n=${options.density}&ply=${encodeURIComponent(one.url)}`
       const shot = await capture(open, url)
       if (options.shots && shot.png) writeFileSync(`${options.shots}/${one.id}.png`, shot.png)
       const row: Result = {

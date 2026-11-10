@@ -1,7 +1,7 @@
 // The scorer's two pure steps: which cloud answers which prompt, and what a pile of rows adds up to.
 // The browser half is verified by running it against the shipped baselines.
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -60,8 +60,7 @@ describe('plan', () => {
 
 describe('plan outside the repository', () => {
   it('refuses samples the dev server cannot serve, instead of building a url with ..', () => {
-    const outside = join(tmpdir(), 'score-outside-test')
-    mkdirSync(outside, { recursive: true })
+    const outside = mkdtempSync(join(tmpdir(), 'score-outside-'))
     try {
       writeFileSync(join(outside, 'p001.ply'), 'x')
       const prompts = join(outside, 'prompts.jsonl')
